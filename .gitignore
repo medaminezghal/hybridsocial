@@ -38,6 +38,7 @@ docker-compose.override.yml
 
 # Uploads (local dev media storage)
 /uploads/
+/backend/priv/uploads/
 
 # Node (for frontend assets if any)
 node_modules/

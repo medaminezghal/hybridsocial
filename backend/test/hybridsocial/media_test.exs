@@ -2,7 +2,6 @@ defmodule Hybridsocial.MediaTest do
   use Hybridsocial.DataCase, async: true
 
   alias Hybridsocial.Media
-  alias Hybridsocial.Media.Storage
 
   @jpeg_bytes <<0xFF, 0xD8, 0xFF, 0xE0, 0::size(160)>>
 
@@ -24,10 +23,8 @@ defmodule Hybridsocial.MediaTest do
 
     on_exit(fn ->
       File.rm(tmp_path)
-      # Clean up uploads directory
-      uploads_dir = Storage.uploads_dir()
-      if File.exists?(uploads_dir), do: File.rm_rf!(uploads_dir)
-      File.mkdir_p!(uploads_dir)
+      # Do NOT rm_rf the uploads dir: tests run async and this wipes
+      # sibling tests' files plus any real dev data on the host.
     end)
 
     upload = %Plug.Upload{

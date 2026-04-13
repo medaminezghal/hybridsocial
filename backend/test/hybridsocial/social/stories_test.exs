@@ -29,9 +29,9 @@ defmodule Hybridsocial.Social.StoriesTest do
 
     on_exit(fn ->
       File.rm(tmp_path)
-      uploads_dir = Storage.uploads_dir()
-      if File.exists?(uploads_dir), do: File.rm_rf!(uploads_dir)
-      File.mkdir_p!(uploads_dir)
+      # Delete only the file this test created — don't wipe the whole
+      # uploads dir (destroys real dev data and breaks parallel tests).
+      _ = Storage.delete(media.storage_path)
     end)
 
     %{author: author, viewer: viewer, media: media}
