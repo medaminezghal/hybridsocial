@@ -14,13 +14,17 @@ defmodule Hybridsocial.Application do
         {DNSCluster, query: Application.get_env(:hybridsocial, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: Hybridsocial.PubSub},
         {Task.Supervisor, name: Hybridsocial.Federation.DeliveryTaskSupervisor},
-        {Task.Supervisor, name: Hybridsocial.TaskSupervisor}
+        {Task.Supervisor, name: Hybridsocial.TaskSupervisor},
+        # Valkey cache pool — safe in test env because it's not transactional.
+        # Tests that need isolation should use Cache.flush_pattern/1 in setup.
+        Hybridsocial.Cache
       ] ++
         if(env != :test,
           do: [
-            # Valkey cache pool (requires Redis/Valkey)
-            Hybridsocial.Cache,
-            # Runtime config from DB
+            # Runtime config from DB — not started in test env because its
+            # GenServer runs in its own process and would not see the test
+            # sandbox connection. Tests that need it must start it themselves
+            # via start_supervised!(Hybridsocial.Config.Store).
             Hybridsocial.Config.Store,
             # NATS connection + JetStream setup
             Hybridsocial.Nats,

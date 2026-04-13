@@ -7,8 +7,8 @@ defmodule HybridsocialWeb.Api.V1.AuthControllerTest do
     "handle" => "testuser",
     "display_name" => "Test User",
     "email" => "test@example.com",
-    "password" => "password123",
-    "password_confirmation" => "password123"
+    "password" => "password1234567890",
+    "password_confirmation" => "password1234567890"
   }
 
   describe "POST /api/v1/auth/register" do
@@ -47,7 +47,7 @@ defmodule HybridsocialWeb.Api.V1.AuthControllerTest do
       conn =
         post(conn, "/api/v1/auth/login", %{
           "email" => "test@example.com",
-          "password" => "password123"
+          "password" => "password1234567890"
         })
 
       response = json_response(conn, 200)
@@ -76,7 +76,7 @@ defmodule HybridsocialWeb.Api.V1.AuthControllerTest do
       login_conn =
         post(conn, "/api/v1/auth/login", %{
           "email" => "test@example.com",
-          "password" => "password123"
+          "password" => "password1234567890"
         })
 
       %{"refresh_token" => refresh_token} = json_response(login_conn, 200)
@@ -97,7 +97,7 @@ defmodule HybridsocialWeb.Api.V1.AuthControllerTest do
       login_conn =
         post(conn, "/api/v1/auth/login", %{
           "email" => "test@example.com",
-          "password" => "password123"
+          "password" => "password1234567890"
         })
 
       %{"access_token" => token} = json_response(login_conn, 200)
@@ -125,7 +125,7 @@ defmodule HybridsocialWeb.Api.V1.AuthControllerTest do
       login_conn =
         post(conn, "/api/v1/auth/login", %{
           "email" => "test@example.com",
-          "password" => "password123"
+          "password" => "password1234567890"
         })
 
       %{"access_token" => token} = json_response(login_conn, 200)
@@ -146,7 +146,7 @@ defmodule HybridsocialWeb.Api.V1.AuthControllerTest do
       login_conn =
         post(conn, "/api/v1/auth/login", %{
           "email" => "test@example.com",
-          "password" => "password123"
+          "password" => "password1234567890"
         })
 
       %{"access_token" => token, "identity_id" => identity_id} = json_response(login_conn, 200)
@@ -201,7 +201,7 @@ defmodule HybridsocialWeb.Api.V1.AuthControllerTest do
       login_conn =
         post(conn, "/api/v1/auth/login", %{
           "email" => "test@example.com",
-          "password" => "password123"
+          "password" => "password1234567890"
         })
 
       %{"access_token" => token, "identity_id" => identity_id} = json_response(login_conn, 200)
@@ -222,7 +222,7 @@ defmodule HybridsocialWeb.Api.V1.AuthControllerTest do
       conn =
         post(conn, "/api/v1/auth/login", %{
           "email" => "test@example.com",
-          "password" => "password123"
+          "password" => "password1234567890"
         })
 
       response = json_response(conn, 200)
@@ -269,7 +269,7 @@ defmodule HybridsocialWeb.Api.V1.AuthControllerTest do
       login_conn =
         post(conn, "/api/v1/auth/login", %{
           "email" => "test@example.com",
-          "password" => "password123"
+          "password" => "password1234567890"
         })
 
       %{"access_token" => token, "identity_id" => identity_id} = json_response(login_conn, 200)

@@ -166,7 +166,6 @@ defmodule HybridsocialWeb.Api.V1.PageController do
       Map.take(params, [
         "theme_color",
         "cover_image_url",
-        "custom_css",
         "logo_url",
         "layout_preference"
       ])
@@ -240,7 +239,6 @@ defmodule HybridsocialWeb.Api.V1.PageController do
       identity_id: branding.identity_id,
       theme_color: branding.theme_color,
       cover_image_url: branding.cover_image_url,
-      custom_css: branding.custom_css,
       logo_url: branding.logo_url,
       layout_preference: branding.layout_preference,
       updated_at: branding.updated_at

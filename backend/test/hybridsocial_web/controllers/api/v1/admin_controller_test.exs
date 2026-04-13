@@ -9,8 +9,8 @@ defmodule HybridsocialWeb.Api.V1.AdminControllerTest do
       Hybridsocial.Accounts.register_user(%{
         "handle" => handle,
         "email" => email,
-        "password" => "password123",
-        "password_confirmation" => "password123"
+        "password" => "password1234567890",
+        "password_confirmation" => "password1234567890"
       })
 
     identity

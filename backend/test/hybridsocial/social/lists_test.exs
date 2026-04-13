@@ -12,8 +12,8 @@ defmodule Hybridsocial.Social.ListsTest do
       Hybridsocial.Accounts.register_user(%{
         "handle" => handle,
         "email" => email,
-        "password" => "Password123!!",
-        "password_confirmation" => "Password123!!"
+        "password" => "Password123456!!",
+        "password_confirmation" => "Password123456!!"
       })
 
     identity

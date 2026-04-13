@@ -8,8 +8,8 @@ defmodule Hybridsocial.Auth.OAuthTest do
     "handle" => "oauthuser",
     "display_name" => "OAuth User",
     "email" => "oauth@example.com",
-    "password" => "password123",
-    "password_confirmation" => "password123"
+    "password" => "password1234567890",
+    "password_confirmation" => "password1234567890"
   }
 
   defp create_user do
@@ -97,8 +97,8 @@ defmodule Hybridsocial.Auth.OAuthTest do
         "handle" => "other",
         "display_name" => "Other",
         "email" => "other@example.com",
-        "password" => "password123",
-        "password_confirmation" => "password123"
+        "password" => "password1234567890",
+        "password_confirmation" => "password1234567890"
       }
 
       {:ok, other} = Accounts.register_user(other_user_attrs)

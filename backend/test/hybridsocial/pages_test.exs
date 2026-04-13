@@ -12,8 +12,8 @@ defmodule Hybridsocial.PagesTest do
       Hybridsocial.Accounts.register_user(%{
         "handle" => handle,
         "email" => email,
-        "password" => "password123",
-        "password_confirmation" => "password123"
+        "password" => "password1234567890",
+        "password_confirmation" => "password1234567890"
       })
 
     identity
@@ -327,21 +327,20 @@ defmodule Hybridsocial.PagesTest do
       assert updated.theme_color == "#00ff00"
     end
 
-    test "sanitizes custom_css" do
+    test "ignores custom_css input (field is intentionally not supported)" do
       owner = create_user("pg_ub3", "pg_ub3@example.com")
       page = create_test_page(owner, "ub_page3")
 
+      # custom_css was removed for security (CSS injection risk). Passing it
+      # should be silently ignored — we just want the update to succeed.
       {:ok, branding} =
         Pages.update_branding(page.id, owner.id, %{
-          "custom_css" =>
-            "@import url('evil.css'); body { color: red; } div { background: url(evil.png); } expression(alert(1)) javascript: alert(1)"
+          "theme_color" => "#112233",
+          "custom_css" => "body { color: red; }"
         })
 
-      refute branding.custom_css =~ "@import"
-      refute branding.custom_css =~ "url("
-      refute branding.custom_css =~ "expression("
-      refute branding.custom_css =~ "javascript:"
-      assert branding.custom_css =~ "body { color: red; }"
+      assert branding.theme_color == "#112233"
+      refute Map.has_key?(Map.from_struct(branding), :custom_css)
     end
 
     test "non-admin cannot update branding" do

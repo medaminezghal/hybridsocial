@@ -3,92 +3,67 @@ defmodule Hybridsocial.Media.StorageTest do
 
   alias Hybridsocial.Media.Storage
 
-  setup do
-    # Clean up any test files after each test
-    on_exit(fn ->
-      uploads_dir = Storage.uploads_dir()
-      if File.exists?(uploads_dir), do: File.rm_rf!(uploads_dir)
-    end)
+  # Track files we create so on_exit can clean up just those — never
+  # rm_rf the uploads dir (parallel tests + real dev data both suffer).
+  defp make_upload(content, content_type, ext) do
+    tmp_path =
+      Path.join(System.tmp_dir!(), "test_upload_#{System.unique_integer([:positive])}.#{ext}")
 
-    :ok
+    File.write!(tmp_path, content)
+
+    on_exit(fn -> File.rm(tmp_path) end)
+
+    %Plug.Upload{path: tmp_path, content_type: content_type, filename: "test.#{ext}"}
+  end
+
+  defp cleanup_storage(storage_path) do
+    on_exit(fn -> Storage.delete(storage_path) end)
   end
 
   # ---------------------------------------------------------------------------
-  # Local Storage
+  # Local Storage (via the public Storage API)
   # ---------------------------------------------------------------------------
 
-  describe "store_local/2" do
+  describe "store/2" do
     test "stores a file and returns the relative path" do
-      # Create a temp file to simulate an upload
-      tmp_path =
-        Path.join(System.tmp_dir!(), "test_upload_#{System.unique_integer([:positive])}.txt")
+      upload = make_upload("test content", "image/png", "png")
 
-      File.write!(tmp_path, "test content")
+      assert {:ok, storage_path} = Storage.store(upload, "some-identity-id")
+      cleanup_storage(storage_path)
 
-      upload = %Plug.Upload{
-        path: tmp_path,
-        content_type: "image/png",
-        filename: "test.png"
-      }
-
-      assert {:ok, storage_path} = Storage.store_local(upload, "some-identity-id")
       assert String.starts_with?(storage_path, "images/")
       assert String.ends_with?(storage_path, ".png")
 
-      # Verify the file was actually stored
       full = Path.join(Storage.uploads_dir(), storage_path)
       assert File.exists?(full)
       assert File.read!(full) == "test content"
-
-      File.rm(tmp_path)
     end
 
-    test "creates correct directory structure" do
-      tmp_path =
-        Path.join(System.tmp_dir!(), "test_upload_#{System.unique_integer([:positive])}.txt")
+    test "routes video uploads under the videos/ prefix" do
+      upload = make_upload("video content", "video/mp4", "mp4")
 
-      File.write!(tmp_path, "video content")
+      assert {:ok, storage_path} = Storage.store(upload, "some-identity-id")
+      cleanup_storage(storage_path)
 
-      upload = %Plug.Upload{
-        path: tmp_path,
-        content_type: "video/mp4",
-        filename: "test.mp4"
-      }
-
-      assert {:ok, storage_path} = Storage.store_local(upload, "some-identity-id")
       assert String.starts_with?(storage_path, "videos/")
       assert String.ends_with?(storage_path, ".mp4")
-
-      File.rm(tmp_path)
     end
   end
 
-  describe "delete_local/1" do
+  describe "delete/1" do
     test "deletes a stored file" do
-      tmp_path =
-        Path.join(System.tmp_dir!(), "test_upload_#{System.unique_integer([:positive])}.txt")
-
-      File.write!(tmp_path, "test content")
-
-      upload = %Plug.Upload{
-        path: tmp_path,
-        content_type: "image/jpeg",
-        filename: "test.jpg"
-      }
-
-      {:ok, storage_path} = Storage.store_local(upload, "some-identity-id")
+      upload = make_upload("test content", "image/jpeg", "jpg")
+      {:ok, storage_path} = Storage.store(upload, "some-identity-id")
 
       full = Path.join(Storage.uploads_dir(), storage_path)
       assert File.exists?(full)
 
-      assert :ok = Storage.delete_local(storage_path)
+      assert :ok = Storage.delete(storage_path)
       refute File.exists?(full)
-
-      File.rm(tmp_path)
     end
 
     test "returns :ok when file does not exist" do
-      assert :ok = Storage.delete_local("nonexistent/path.jpg")
+      assert :ok = Storage.delete("nonexistent/path.jpg")
     end
   end
 

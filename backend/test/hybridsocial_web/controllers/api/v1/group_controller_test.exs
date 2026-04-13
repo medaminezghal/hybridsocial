@@ -8,15 +8,15 @@ defmodule HybridsocialWeb.Api.V1.GroupControllerTest do
       Hybridsocial.Accounts.register_user(%{
         "handle" => handle,
         "email" => email,
-        "password" => "password123",
-        "password_confirmation" => "password123"
+        "password" => "password1234567890",
+        "password_confirmation" => "password1234567890"
       })
 
     identity
   end
 
   defp login(conn, email) do
-    {:ok, tokens} = Hybridsocial.Auth.login(email, "password123")
+    {:ok, tokens} = Hybridsocial.Auth.login(email, "password1234567890")
     put_req_header(conn, "authorization", "Bearer #{tokens.access_token}")
   end
 

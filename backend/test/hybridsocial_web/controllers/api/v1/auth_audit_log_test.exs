@@ -8,8 +8,8 @@ defmodule HybridsocialWeb.Api.V1.AuthAuditLogTest do
     "handle" => "audituser",
     "display_name" => "Audit User",
     "email" => "audit@example.com",
-    "password" => "password123",
-    "password_confirmation" => "password123"
+    "password" => "password1234567890",
+    "password_confirmation" => "password1234567890"
   }
 
   describe "audit logging for auth events" do
@@ -18,7 +18,7 @@ defmodule HybridsocialWeb.Api.V1.AuthAuditLogTest do
 
       post(conn, "/api/v1/auth/login", %{
         "email" => "audit@example.com",
-        "password" => "password123"
+        "password" => "password1234567890"
       })
 
       logs = Moderation.list_audit_log(action: "auth.login")
@@ -49,7 +49,7 @@ defmodule HybridsocialWeb.Api.V1.AuthAuditLogTest do
       login_conn =
         post(conn, "/api/v1/auth/login", %{
           "email" => "audit@example.com",
-          "password" => "password123"
+          "password" => "password1234567890"
         })
 
       %{"access_token" => token} = json_response(login_conn, 200)

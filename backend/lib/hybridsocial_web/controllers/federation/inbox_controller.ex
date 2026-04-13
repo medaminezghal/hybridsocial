@@ -11,15 +11,17 @@ defmodule HybridsocialWeb.Federation.InboxController do
   @doc """
   Handles POST to /actors/:id/inbox (actor-specific inbox).
   """
-  def actor_inbox(conn, %{"id" => _actor_id} = params) do
-    process_inbox(conn, params)
+  def actor_inbox(conn, _params) do
+    # Use body_params, not the merged params — the route's :id would
+    # otherwise shadow the activity's own "id" field.
+    process_inbox(conn, conn.body_params)
   end
 
   @doc """
   Handles POST to /inbox (shared inbox).
   """
-  def shared_inbox(conn, params) do
-    process_inbox(conn, params)
+  def shared_inbox(conn, _params) do
+    process_inbox(conn, conn.body_params)
   end
 
   defp process_inbox(conn, activity) do

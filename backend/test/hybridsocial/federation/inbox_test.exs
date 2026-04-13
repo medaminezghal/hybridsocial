@@ -94,7 +94,9 @@ defmodule Hybridsocial.Federation.InboxTest do
     end
 
     test "returns error for invalid follow activity" do
-      assert {:error, :invalid_follow_activity} = Inbox.process(%{"type" => "Follow"})
+      # Containment runs first and rejects activities with no actor before
+      # dispatch ever sees the malformed Follow.
+      assert {:error, :missing_actor} = Inbox.process(%{"type" => "Follow"})
     end
   end
 
@@ -223,7 +225,10 @@ defmodule Hybridsocial.Federation.InboxTest do
         "object" => "https://remote.example/objects/note-ref"
       }
 
-      assert {:error, :object_must_be_embedded} = Inbox.process(activity)
+      # CreateValidator now rejects this earlier in the pipeline as
+      # validation_failed; the dispatch-layer :object_must_be_embedded
+      # is unreachable.
+      assert {:error, {:validation_failed, _}} = Inbox.process(activity)
     end
   end
 
@@ -476,7 +481,9 @@ defmodule Hybridsocial.Federation.InboxTest do
 
   describe "process/1 - invalid" do
     test "returns error for unsupported activity type" do
-      assert {:error, :unsupported_activity_type} =
+      # Validation runs before dispatch and rejects activities missing required
+      # common fields (id, etc.), so we don't reach the unknown-type handler.
+      assert {:error, {:validation_failed, _}} =
                Inbox.process(%{"type" => "Dislike", "actor" => "https://example.com/u/test"})
     end
 

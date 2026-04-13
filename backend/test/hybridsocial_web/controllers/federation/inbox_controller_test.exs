@@ -78,7 +78,7 @@ defmodule HybridsocialWeb.Federation.InboxControllerTest do
     end
 
     test "returns 422 for unsupported activity type", %{conn: conn} do
-      local = create_local_identity("inbox_ctrl_unsupported")
+      local = create_local_identity("inbox_unsupported")
 
       activity = %{
         "@context" => "https://www.w3.org/ns/activitystreams",

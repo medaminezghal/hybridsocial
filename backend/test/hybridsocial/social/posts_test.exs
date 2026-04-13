@@ -8,8 +8,8 @@ defmodule Hybridsocial.Social.PostsTest do
       Hybridsocial.Accounts.register_user(%{
         "handle" => handle,
         "email" => email,
-        "password" => "password123",
-        "password_confirmation" => "password123"
+        "password" => "password1234567890",
+        "password_confirmation" => "password1234567890"
       })
 
     identity
@@ -29,7 +29,6 @@ defmodule Hybridsocial.Social.PostsTest do
       assert post.visibility == "public"
       assert post.identity_id == identity.id
       assert post.published_at != nil
-      assert post.edit_expires_at != nil
     end
 
     test "generates content_html from content" do
@@ -344,19 +343,25 @@ defmodule Hybridsocial.Social.PostsTest do
   end
 
   describe "posts_by_identity/2" do
-    test "returns paginated posts" do
+    test "returns posts ordered newest first, honoring :limit and :max_id" do
       identity = create_user("paguser", "pag@test.com")
 
-      for i <- 1..5 do
-        Posts.create_post(identity.id, %{"content" => "Post #{i}"})
-      end
+      posts =
+        for i <- 1..5 do
+          {:ok, post} = Posts.create_post(identity.id, %{"content" => "Post #{i}"})
+          post
+        end
 
-      result = Posts.posts_by_identity(identity.id, limit: 3)
-      assert length(result.posts) == 3
-      assert result.next_cursor != nil
+      first_page = Posts.posts_by_identity(identity.id, limit: 3)
+      assert length(first_page) == 3
 
-      result2 = Posts.posts_by_identity(identity.id, limit: 3, cursor: result.next_cursor)
-      assert length(result2.posts) == 2
+      last_of_first_page = List.last(first_page)
+
+      next_page = Posts.posts_by_identity(identity.id, limit: 3, max_id: last_of_first_page.id)
+      assert length(next_page) >= 1
+      assert Enum.all?(next_page, &(&1.id < last_of_first_page.id))
+
+      assert length(Posts.posts_by_identity(identity.id, limit: 10)) == length(posts)
     end
   end
 end

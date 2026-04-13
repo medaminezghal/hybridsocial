@@ -10,8 +10,8 @@ defmodule HybridsocialWeb.Api.V1.MediaControllerTest do
     "handle" => "mediatest",
     "display_name" => "Media Test",
     "email" => "media@example.com",
-    "password" => "password123",
-    "password_confirmation" => "password123"
+    "password" => "password1234567890",
+    "password_confirmation" => "password1234567890"
   }
 
   setup %{conn: conn} do
@@ -20,7 +20,7 @@ defmodule HybridsocialWeb.Api.V1.MediaControllerTest do
     login_conn =
       post(conn, "/api/v1/auth/login", %{
         "email" => "media@example.com",
-        "password" => "password123"
+        "password" => "password1234567890"
       })
 
     %{"access_token" => token, "identity_id" => identity_id} = json_response(login_conn, 200)

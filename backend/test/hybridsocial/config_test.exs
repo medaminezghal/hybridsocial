@@ -5,14 +5,10 @@ defmodule Hybridsocial.ConfigTest do
   alias Hybridsocial.Config.Setting
 
   setup do
-    # Allow the Config.Store GenServer to use our DB connection
+    # Config.Store isn't in the test supervision tree (its GenServer would
+    # run outside the sandbox). Start one per test and share our connection.
     Ecto.Adapters.SQL.Sandbox.mode(Hybridsocial.Repo, {:shared, self()})
-
-    # Clear ETS table before each test
-    if :ets.whereis(:hybridsocial_settings) != :undefined do
-      :ets.delete_all_objects(:hybridsocial_settings)
-    end
-
+    start_supervised!(Hybridsocial.Config.Store)
     :ok
   end
 

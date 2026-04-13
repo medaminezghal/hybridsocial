@@ -6,8 +6,8 @@ defmodule HybridsocialWeb.Api.V1.Admin.BackupControllerTest do
       Hybridsocial.Accounts.register_user(%{
         "handle" => handle,
         "email" => email,
-        "password" => "password123",
-        "password_confirmation" => "password123"
+        "password" => "password1234567890",
+        "password_confirmation" => "password1234567890"
       })
 
     {:ok, _} = Hybridsocial.Auth.RBAC.assign_role(identity.id, "owner", identity.id)
@@ -19,8 +19,8 @@ defmodule HybridsocialWeb.Api.V1.Admin.BackupControllerTest do
       Hybridsocial.Accounts.register_user(%{
         "handle" => handle,
         "email" => email,
-        "password" => "password123",
-        "password_confirmation" => "password123"
+        "password" => "password1234567890",
+        "password_confirmation" => "password1234567890"
       })
 
     identity

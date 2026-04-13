@@ -425,6 +425,9 @@ defmodule HybridsocialWeb.Api.V1.StatusController do
   # --- Serialization ---
 
   defp serialize_post(conn, post) do
+    # Serializer reads post.identity (for badges, account block); preload
+    # defensively here — Repo.preload is a no-op when already loaded.
+    post = Hybridsocial.Repo.preload(post, :identity)
     PostSerializer.serialize(post, current_identity_id: current_identity_id(conn))
   end
 

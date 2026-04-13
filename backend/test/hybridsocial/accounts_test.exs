@@ -7,8 +7,8 @@ defmodule Hybridsocial.AccountsTest do
     "handle" => "testuser",
     "display_name" => "Test User",
     "email" => "test@example.com",
-    "password" => "password123",
-    "password_confirmation" => "password123"
+    "password" => "password1234567890",
+    "password_confirmation" => "password1234567890"
   }
 
   describe "register_user/1" do
@@ -69,7 +69,7 @@ defmodule Hybridsocial.AccountsTest do
     end
 
     test "succeeds with correct credentials" do
-      assert {:ok, user} = Accounts.authenticate_user("test@example.com", "password123")
+      assert {:ok, user} = Accounts.authenticate_user("test@example.com", "password1234567890")
       assert user.email == "test@example.com"
     end
 
@@ -80,7 +80,7 @@ defmodule Hybridsocial.AccountsTest do
 
     test "fails with non-existent email" do
       assert {:error, :invalid_credentials} =
-               Accounts.authenticate_user("nonexistent@example.com", "password123")
+               Accounts.authenticate_user("nonexistent@example.com", "password1234567890")
     end
 
     test "fails for suspended account", %{identity: identity} do
@@ -90,7 +90,7 @@ defmodule Hybridsocial.AccountsTest do
         |> Hybridsocial.Repo.update()
 
       assert {:error, :account_suspended} =
-               Accounts.authenticate_user("test@example.com", "password123")
+               Accounts.authenticate_user("test@example.com", "password1234567890")
     end
   end
 

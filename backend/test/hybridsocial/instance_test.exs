@@ -5,6 +5,7 @@ defmodule Hybridsocial.InstanceTest do
 
   setup do
     Ecto.Adapters.SQL.Sandbox.mode(Hybridsocial.Repo, {:shared, self()})
+    start_supervised!(Hybridsocial.Config.Store)
     :ok
   end
 

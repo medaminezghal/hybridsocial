@@ -8,8 +8,8 @@ defmodule HybridsocialWeb.Api.V1.SubscriptionControllerTest do
       Accounts.register_user(%{
         "handle" => handle,
         "email" => email,
-        "password" => "password123",
-        "password_confirmation" => "password123"
+        "password" => "password1234567890",
+        "password_confirmation" => "password1234567890"
       })
 
     identity
@@ -21,16 +21,17 @@ defmodule HybridsocialWeb.Api.V1.SubscriptionControllerTest do
   end
 
   describe "GET /api/v1/subscriptions/plans" do
-    test "returns available plans", %{conn: conn} do
+    test "returns the four tier plans", %{conn: conn} do
       conn = get(conn, "/api/v1/subscriptions/plans")
       response = json_response(conn, 200)
 
       assert is_list(response["plans"])
-      assert length(response["plans"]) == 2
 
       plan_ids = Enum.map(response["plans"], & &1["id"])
       assert "free" in plan_ids
-      assert "premium" in plan_ids
+      assert "verified_starter" in plan_ids
+      assert "verified_creator" in plan_ids
+      assert "verified_pro" in plan_ids
     end
   end
 
