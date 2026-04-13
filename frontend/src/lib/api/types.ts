@@ -34,7 +34,8 @@ export interface Identity {
   roles: string[];
   permissions: string[];
   two_factor_enabled: boolean;
-  verification_tier?: string;
+  verification_tier?: string | null;
+  is_verified?: boolean;
   limits?: TierLimits;
   followers_count: number;
   following_count: number;

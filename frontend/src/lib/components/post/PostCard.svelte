@@ -249,7 +249,7 @@
             <ProfileHoverCard handle={post.account.acct || post.account.handle}>
               <a href="/@{post.account.handle}" class="post-display-name">{displayName}</a>
             </ProfileHoverCard>
-            {#if (post.account as any).verified}
+            {#if post.account.is_verified}
               <VerifiedBadge size="sm" />
             {/if}
             {#if (post.account as any).badges}

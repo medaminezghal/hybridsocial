@@ -217,6 +217,7 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
 
   def serialize_account(%Hybridsocial.Accounts.Identity{} = identity, badges) do
     domain = extract_domain(identity)
+    verification_tier = Map.get(identity, :verification_tier)
 
     %{
       id: identity.id,
@@ -229,6 +230,8 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
       is_bot: Map.get(identity, :is_bot, false),
       is_locked: Map.get(identity, :is_locked, false),
       badges: badges,
+      verification_tier: verification_tier,
+      is_verified: verified_tier?(verification_tier),
       domain: domain,
       url: Map.get(identity, :url, nil),
       created_at: identity.inserted_at
@@ -236,6 +239,11 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
   end
 
   def serialize_account(_, _), do: nil
+
+  defp verified_tier?(tier) when tier in ["verified_starter", "verified_creator", "verified_pro"],
+    do: true
+
+  defp verified_tier?(_), do: false
 
   # --- Private helpers ---
 

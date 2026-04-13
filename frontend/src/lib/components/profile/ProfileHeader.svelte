@@ -148,7 +148,7 @@
     <div class="profile-identity">
       <h1 class="profile-display-name">
         {account.display_name || account.handle}
-        {#if (account as any).verified}
+        {#if account.is_verified}
           <VerifiedBadge size="md" />
         {/if}
         {#if (account as any).badges}

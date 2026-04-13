@@ -371,6 +371,8 @@ defmodule HybridsocialWeb.Api.V1.AccountController do
   end
 
   defp serialize_identity(identity) do
+    tier = identity.verification_tier
+
     %{
       id: identity.id,
       type: identity.type,
@@ -384,6 +386,8 @@ defmodule HybridsocialWeb.Api.V1.AccountController do
       is_admin: identity.is_admin,
       show_badge: identity.show_badge,
       badges: Hybridsocial.Badges.instance_badges(identity),
+      verification_tier: tier,
+      is_verified: tier in ["verified_starter", "verified_creator", "verified_pro"],
       onboarded_at: identity.onboarded_at,
       created_at: identity.inserted_at
     }
