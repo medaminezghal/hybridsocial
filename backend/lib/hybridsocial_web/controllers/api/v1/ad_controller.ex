@@ -4,9 +4,7 @@ defmodule HybridsocialWeb.Api.V1.AdController do
   alias Hybridsocial.Ads
 
   def index(conn, params) do
-    if not Ads.enabled?() do
-      json(conn, [])
-    else
+    if Ads.enabled?() do
       placement = params["placement"] || "sidebar"
       ads = Ads.get_ads(placement)
 
@@ -14,6 +12,8 @@ defmodule HybridsocialWeb.Api.V1.AdController do
       for ad <- ads, do: Ads.record_impression(ad.id)
 
       json(conn, Enum.map(ads, &serialize_ad/1))
+    else
+      json(conn, [])
     end
   end
 

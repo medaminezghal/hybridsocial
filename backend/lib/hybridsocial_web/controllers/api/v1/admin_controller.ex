@@ -3109,11 +3109,7 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
     with :ok <- require_permission(conn, "users.manage") do
       tier = params["tier"]
 
-      if tier not in @valid_tiers do
-        conn
-        |> put_status(:bad_request)
-        |> json(%{error: "tier.invalid", valid_tiers: @valid_tiers})
-      else
+      if tier in @valid_tiers do
         case Accounts.get_identity(id) do
           nil ->
             conn |> put_status(:not_found) |> json(%{error: "account.not_found"})
@@ -3131,6 +3127,10 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
                 |> json(%{error: "account.tier_update_failed"})
             end
         end
+      else
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "tier.invalid", valid_tiers: @valid_tiers})
       end
     else
       {:error, perm} -> deny(conn, perm)

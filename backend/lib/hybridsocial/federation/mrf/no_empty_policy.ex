@@ -10,7 +10,7 @@ defmodule Hybridsocial.Federation.MRF.NoEmptyPolicy do
     attachments = object["attachment"] || []
 
     has_content = String.trim(content) != ""
-    has_attachments = is_list(attachments) and length(attachments) > 0
+    has_attachments = is_list(attachments) and attachments != []
 
     has_poll =
       is_map(object["oneOf"]) or is_list(object["oneOf"]) or

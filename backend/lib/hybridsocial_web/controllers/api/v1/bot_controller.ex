@@ -51,61 +51,24 @@ defmodule HybridsocialWeb.Api.V1.BotController do
     handle = params["handle"] || generate_bot_handle(name)
 
     Repo.transaction(fn ->
-      # 1. Create bot identity
-      identity_attrs = %{
-        type: "bot",
-        handle: handle,
-        display_name: name,
-        is_bot: true,
-        parent_identity_id: identity.id
-      }
-
-      case %Identity{} |> Identity.create_changeset(identity_attrs) |> Repo.insert() do
-        {:ok, bot_identity} ->
-          # 2. Create bot record
-          case %Bot{identity_id: bot_identity.id}
-               |> Bot.changeset(%{is_active: true})
-               |> Repo.insert() do
-            {:ok, _bot} ->
-              # 3. Create OAuth app linked to the bot identity
-              app_attrs = %{
-                "name" => "#{name} API",
-                "redirect_uris" => ["urn:ietf:wg:oauth:2.0:oob"],
-                "scopes" => ["read", "write", "follow", "push"]
-              }
-
-              case OAuth.create_application(app_attrs, bot_identity.id) do
-                {:ok, app, client_secret} ->
-                  # 4. Generate access token for the bot
-                  case generate_bot_token(bot_identity.id, app.id) do
-                    {:ok, access_token} ->
-                      %{
-                        bot: %{
-                          id: bot_identity.id,
-                          name: bot_identity.display_name,
-                          handle: bot_identity.handle
-                        },
-                        client_id: app.client_id,
-                        client_secret: client_secret,
-                        access_token: access_token,
-                        note:
-                          "Save these credentials now. The client secret and access token will not be shown again."
-                      }
-
-                    {:error, reason} ->
-                      Repo.rollback(reason)
-                  end
-
-                {:error, changeset} ->
-                  Repo.rollback(changeset)
-              end
-
-            {:error, changeset} ->
-              Repo.rollback(changeset)
-          end
-
-        {:error, changeset} ->
-          Repo.rollback(changeset)
+      with {:ok, bot_identity} <- create_bot_identity(identity, handle, name),
+           {:ok, _bot} <- create_bot_record(bot_identity),
+           {:ok, app, client_secret} <- create_bot_oauth_app(name, bot_identity.id),
+           {:ok, access_token} <- generate_bot_token(bot_identity.id, app.id) do
+        %{
+          bot: %{
+            id: bot_identity.id,
+            name: bot_identity.display_name,
+            handle: bot_identity.handle
+          },
+          client_id: app.client_id,
+          client_secret: client_secret,
+          access_token: access_token,
+          note:
+            "Save these credentials now. The client secret and access token will not be shown again."
+        }
+      else
+        {:error, reason} -> Repo.rollback(reason)
       end
     end)
     |> case do
@@ -190,31 +153,18 @@ defmodule HybridsocialWeb.Api.V1.BotController do
             |> where([a], a.created_by == ^bot_id)
             |> Repo.delete_all()
 
-            # Create new OAuth app
-            app_attrs = %{
-              "name" => "#{bot_identity.display_name} API",
-              "redirect_uris" => ["urn:ietf:wg:oauth:2.0:oob"],
-              "scopes" => ["read", "write", "follow", "push"]
-            }
-
-            case OAuth.create_application(app_attrs, bot_id) do
-              {:ok, app, client_secret} ->
-                case generate_bot_token(bot_id, app.id) do
-                  {:ok, access_token} ->
-                    %{
-                      client_id: app.client_id,
-                      client_secret: client_secret,
-                      access_token: access_token,
-                      note:
-                        "Save these credentials now. The client secret and access token will not be shown again."
-                    }
-
-                  {:error, reason} ->
-                    Repo.rollback(reason)
-                end
-
-              {:error, changeset} ->
-                Repo.rollback(changeset)
+            with {:ok, app, client_secret} <-
+                   create_bot_oauth_app(bot_identity.display_name, bot_id),
+                 {:ok, access_token} <- generate_bot_token(bot_id, app.id) do
+              %{
+                client_id: app.client_id,
+                client_secret: client_secret,
+                access_token: access_token,
+                note:
+                  "Save these credentials now. The client secret and access token will not be shown again."
+              }
+            else
+              {:error, reason} -> Repo.rollback(reason)
             end
           end)
           |> case do
@@ -245,6 +195,35 @@ defmodule HybridsocialWeb.Api.V1.BotController do
 
     suffix = :crypto.strong_rand_bytes(3) |> Base.encode16(case: :lower)
     "#{base}_bot_#{suffix}"
+  end
+
+  defp create_bot_identity(parent_identity, handle, name) do
+    %Identity{}
+    |> Identity.create_changeset(%{
+      type: "bot",
+      handle: handle,
+      display_name: name,
+      is_bot: true,
+      parent_identity_id: parent_identity.id
+    })
+    |> Repo.insert()
+  end
+
+  defp create_bot_record(bot_identity) do
+    %Bot{identity_id: bot_identity.id}
+    |> Bot.changeset(%{is_active: true})
+    |> Repo.insert()
+  end
+
+  defp create_bot_oauth_app(bot_name, bot_id) do
+    OAuth.create_application(
+      %{
+        "name" => "#{bot_name} API",
+        "redirect_uris" => ["urn:ietf:wg:oauth:2.0:oob"],
+        "scopes" => ["read", "write", "follow", "push"]
+      },
+      bot_id
+    )
   end
 
   defp generate_bot_token(identity_id, application_id) do

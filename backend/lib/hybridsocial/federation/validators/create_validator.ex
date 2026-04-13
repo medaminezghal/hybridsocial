@@ -24,7 +24,7 @@ defmodule Hybridsocial.Federation.Validators.CreateValidator do
     attachments = object["attachment"]
 
     has_content = is_binary(content) and String.trim(content) != ""
-    has_attachments = is_list(attachments) and length(attachments) > 0
+    has_attachments = is_list(attachments) and attachments != []
 
     if has_content or has_attachments do
       :ok

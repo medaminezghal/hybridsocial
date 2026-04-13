@@ -32,7 +32,7 @@ defmodule Hybridsocial.Federation.MRF do
   @doc "Returns the list of configured MRF policy modules."
   def configured_policies do
     case Config.get("mrf_policies", []) do
-      policies when is_list(policies) and length(policies) > 0 ->
+      [_ | _] = policies ->
         policies
         |> Enum.map(&resolve_policy_module/1)
         |> Enum.reject(&is_nil/1)

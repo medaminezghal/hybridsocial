@@ -33,7 +33,7 @@ defmodule Hybridsocial.Media.Filter do
 
   defp configured_filters do
     case Config.get("upload_filters", []) do
-      filters when is_list(filters) and length(filters) > 0 ->
+      [_ | _] = filters ->
         filters
         |> Enum.map(&resolve_filter_module/1)
         |> Enum.reject(&is_nil/1)

@@ -505,9 +505,10 @@ defmodule HybridsocialWeb.Api.V1.StatusController do
         identity.is_bot ->
           bot = Hybridsocial.Repo.get(Hybridsocial.Accounts.Bot, identity.id)
 
-          cond do
-            bot && bot.posts_per_hour -> bot.posts_per_hour
-            true -> Hybridsocial.Config.get("bot_posts_per_hour", 30)
+          if bot && bot.posts_per_hour do
+            bot.posts_per_hour
+          else
+            Hybridsocial.Config.get("bot_posts_per_hour", 30)
           end
 
         # Global user limit (0 = unlimited, default)

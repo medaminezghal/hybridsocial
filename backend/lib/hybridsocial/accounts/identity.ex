@@ -86,7 +86,7 @@ defmodule Hybridsocial.Accounts.Identity do
   @subaccount_update_fields @update_fields ++ [:is_bot]
 
   def update_changeset(identity, attrs) do
-    fields = if is_subaccount?(identity), do: @subaccount_update_fields, else: @update_fields
+    fields = if subaccount?(identity), do: @subaccount_update_fields, else: @update_fields
 
     identity
     |> cast(attrs, fields)
@@ -149,19 +149,19 @@ defmodule Hybridsocial.Accounts.Identity do
 
   defp reject_type_change_on_main_account(changeset, identity) do
     # Main accounts (no parent) cannot change their type to bot/group/organization
-    if not is_subaccount?(identity) do
+    if subaccount?(identity) do
+      changeset
+    else
       case get_change(changeset, :type) do
         nil -> changeset
         "user" -> changeset
         _ -> add_error(changeset, :type, "main accounts must remain as user type")
       end
-    else
-      changeset
     end
   end
 
-  defp is_subaccount?(%{parent_identity_id: pid}) when is_binary(pid), do: true
-  defp is_subaccount?(_), do: false
+  defp subaccount?(%{parent_identity_id: pid}) when is_binary(pid), do: true
+  defp subaccount?(_), do: false
 
   defp reject_bot_on_main_account(changeset) do
     parent_id = get_field(changeset, :parent_identity_id)
