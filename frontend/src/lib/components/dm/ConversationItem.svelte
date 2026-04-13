@@ -67,11 +67,6 @@
     <div class="conversation-header">
       <span class="conversation-name">
         {displayName}
-        {#if conversation.is_encrypted}
-          <span class="material-symbols-outlined encryption-icon encrypted" title="End-to-end encrypted">lock</span>
-        {:else if !conversation.is_local}
-          <span class="material-symbols-outlined encryption-icon unencrypted" title="Not encrypted — federated message">lock_open</span>
-        {/if}
       </span>
       <span class="conversation-time">{timeAgo}</span>
     </div>
@@ -182,20 +177,6 @@
     font-weight: 700;
     line-height: 1;
     flex-shrink: 0;
-  }
-
-  .encryption-icon {
-    font-size: 14px;
-    vertical-align: middle;
-    margin-inline-start: 4px;
-  }
-
-  .encrypted {
-    color: var(--color-success, #22c55e);
-  }
-
-  .unencrypted {
-    color: var(--color-warning, #f59e0b);
   }
 
   .conversation-pending {
