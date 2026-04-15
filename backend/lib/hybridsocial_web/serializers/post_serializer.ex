@@ -9,6 +9,7 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
 
   alias Hybridsocial.Repo
   alias Hybridsocial.Social.{Reaction, Boost, Bookmark, PostMute}
+  alias Hybridsocial.Media.MediaFile
   alias Hybridsocial.Content.{LinkPreviews, CustomEmoji}
 
   @doc """
@@ -75,6 +76,9 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
     # In reply to account
     in_reply_to_account_id = in_reply_to_account_id(post)
 
+    # Media attachments
+    media_attachments = media_attachments_for(post.id)
+
     # URIs
     base_url = HybridsocialWeb.Endpoint.url()
 
@@ -109,7 +113,8 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
       mentions: mentions,
       tags: tags,
       emojis: emojis,
-      reactions: reactions
+      reactions: reactions,
+      media_attachments: media_attachments
     }
   end
 
@@ -130,6 +135,9 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
 
     # Batch load reactions breakdown
     reactions_breakdown = batch_reactions(post_ids, current_identity_id)
+
+    # Batch load media attachments (one query for the whole list)
+    media_by_post = batch_media_attachments(post_ids)
 
     Enum.map(posts, fn post ->
       badges =
@@ -196,7 +204,8 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
         mentions: mentions,
         tags: tags,
         emojis: emojis,
-        reactions: Map.get(reactions_breakdown, post.id, [])
+        reactions: Map.get(reactions_breakdown, post.id, []),
+        media_attachments: Map.get(media_by_post, post.id, [])
       }
     end)
   end
@@ -388,6 +397,64 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
         nil
     end
   end
+
+  # --- Media attachments ---
+
+  defp media_attachments_for(post_id) do
+    MediaFile
+    |> where([m], m.post_id == ^post_id and is_nil(m.deleted_at))
+    |> order_by([m], asc: m.inserted_at)
+    |> Repo.all()
+    |> Enum.map(&serialize_media_attachment/1)
+  end
+
+  defp batch_media_attachments([]), do: %{}
+
+  defp batch_media_attachments(post_ids) do
+    MediaFile
+    |> where([m], m.post_id in ^post_ids and is_nil(m.deleted_at))
+    |> order_by([m], asc: m.inserted_at)
+    |> Repo.all()
+    |> Enum.group_by(& &1.post_id, &serialize_media_attachment/1)
+  end
+
+  defp serialize_media_attachment(%MediaFile{} = media) do
+    %{
+      id: media.id,
+      type: media_type_for(media.content_type),
+      url: Hybridsocial.Media.media_url(media),
+      preview_url: thumbnail_url(media),
+      remote_url: nil,
+      description: media.alt_text,
+      blurhash: media.blurhash,
+      meta: %{
+        original: %{
+          width: media.width,
+          height: media.height,
+          duration: media.duration,
+          size: media.file_size,
+          content_type: media.content_type
+        }
+      }
+    }
+  end
+
+  defp media_type_for(content_type) when is_binary(content_type) do
+    cond do
+      String.starts_with?(content_type, "image/") -> "image"
+      String.starts_with?(content_type, "video/") -> "video"
+      String.starts_with?(content_type, "audio/") -> "audio"
+      true -> "unknown"
+    end
+  end
+
+  defp media_type_for(_), do: "unknown"
+
+  defp thumbnail_url(%MediaFile{thumbnail_path: path}) when is_binary(path) and path != "" do
+    Hybridsocial.Media.Storage.url(path)
+  end
+
+  defp thumbnail_url(_), do: nil
 
   defp extract_mentions(html) when is_binary(html) do
     # Extract @mentions from content — look for links with class="mention" or @handle patterns

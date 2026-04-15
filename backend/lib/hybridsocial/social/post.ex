@@ -43,6 +43,7 @@ defmodule Hybridsocial.Social.Post do
     has_many :reactions, Hybridsocial.Social.Reaction
     has_many :boosts, Hybridsocial.Social.Boost
     has_many :revisions, Hybridsocial.Social.PostRevision
+    has_many :media_attachments, Hybridsocial.Media.MediaFile
     has_one :poll, Hybridsocial.Social.Poll
 
     timestamps(type: :utc_datetime_usec)
@@ -106,10 +107,12 @@ defmodule Hybridsocial.Social.Post do
   defp validate_content_for_type(changeset) do
     post_type = get_field(changeset, :post_type)
 
-    if post_type != "media" do
-      validate_required(changeset, [:content])
-    else
+    # media and video_stream posts can be caption-less — a photo or reel
+    # doesn't need text. Everything else (text/poll/article) requires content.
+    if post_type in ["media", "video_stream"] do
       changeset
+    else
+      validate_required(changeset, [:content])
     end
   end
 

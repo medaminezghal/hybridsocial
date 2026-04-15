@@ -436,6 +436,13 @@
       }
       if (uploadedMedia.length > 0) {
         body.media_ids = uploadedMedia.map((m) => m.id);
+
+        // Auto-promote to video_stream if every attachment is a video —
+        // this is what drops the post into the Streams (reels) feed.
+        const allVideo = uploadedMedia.every((m) => m.type === 'video');
+        if (allVideo) {
+          body.post_type = 'video_stream';
+        }
       }
       if (showPoll) {
         const validOptions = pollOptions.filter((o) => o.trim());
@@ -476,10 +483,19 @@
         }
       }
 
+      const optimisticType =
+        body.post_type === 'video_stream'
+          ? 'video_stream'
+          : uploadedMedia.length > 0
+            ? 'media'
+            : optimisticPoll
+              ? 'poll'
+              : 'text';
+
       const optimisticPost = {
         id: optimisticId,
-        type: uploadedMedia.length > 0 ? 'media' : (optimisticPoll ? 'poll' : 'text'),
-        post_type: uploadedMedia.length > 0 ? 'media' : (optimisticPoll ? 'poll' : 'text'),
+        type: optimisticType,
+        post_type: optimisticType,
         content: contentStr,
         content_html: contentStr ? `<p>${contentStr.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>')}</p>` : null,
         visibility: body.visibility,

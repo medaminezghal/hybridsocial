@@ -85,6 +85,8 @@ defmodule Hybridsocial.Social.Posts do
           Polls.create_poll(post.id, poll_attrs)
         end
 
+        attach_media(post, Map.get(attrs, "media_ids") || Map.get(attrs, :media_ids) || [])
+
         # Increment parent's reply count
         if post.parent_id do
           Post
@@ -92,7 +94,7 @@ defmodule Hybridsocial.Social.Posts do
           |> Repo.update_all(inc: [reply_count: 1])
         end
 
-        post = Repo.preload(post, poll: :options)
+        post = Repo.preload(post, [:media_attachments, poll: :options])
 
         # Broadcast for OpenSearch indexing
         Phoenix.PubSub.broadcast(Hybridsocial.PubSub, "posts", {:post_created, post})
@@ -102,6 +104,26 @@ defmodule Hybridsocial.Social.Posts do
       {:error, changeset} ->
         {:error, changeset}
     end
+  end
+
+  # Attaches the listed media files to the post. Only media owned by the post's
+  # author and not already attached to another post are linked; anything else
+  # is silently skipped so a bad media_id can't fail a post insert.
+  defp attach_media(_post, []), do: :ok
+  defp attach_media(_post, nil), do: :ok
+
+  defp attach_media(%Post{id: post_id, identity_id: owner_id}, media_ids)
+       when is_list(media_ids) do
+    query =
+      from m in Hybridsocial.Media.MediaFile,
+        where:
+          m.id in ^media_ids and
+            m.identity_id == ^owner_id and
+            is_nil(m.deleted_at) and
+            is_nil(m.post_id)
+
+    Repo.update_all(query, set: [post_id: post_id, updated_at: DateTime.utc_now()])
+    :ok
   end
 
   @doc """

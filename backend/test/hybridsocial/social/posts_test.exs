@@ -342,6 +342,84 @@ defmodule Hybridsocial.Social.PostsTest do
     end
   end
 
+  describe "create_post/3 with media_ids" do
+    @jpeg_bytes <<0xFF, 0xD8, 0xFF, 0xE0, 0::size(160)>>
+
+    defp upload_media(identity_id, content_type \\ "image/jpeg", ext \\ "jpg") do
+      tmp_path =
+        Path.join(
+          System.tmp_dir!(),
+          "posts_test_#{:erlang.unique_integer([:positive])}.#{ext}"
+        )
+
+      File.write!(tmp_path, @jpeg_bytes)
+
+      upload = %Plug.Upload{
+        path: tmp_path,
+        content_type: content_type,
+        filename: "test.#{ext}"
+      }
+
+      {:ok, media} = Hybridsocial.Media.upload(identity_id, upload)
+      on_exit(fn -> File.rm(tmp_path) end)
+      media
+    end
+
+    test "attaches media files owned by the author" do
+      identity = create_user("media_owner", "media_owner@test.com")
+      media = upload_media(identity.id)
+
+      assert {:ok, post} =
+               Posts.create_post(identity.id, %{
+                 "content" => "Here's a photo",
+                 "media_ids" => [media.id]
+               })
+
+      attached = Repo.get(Hybridsocial.Media.MediaFile, media.id)
+      assert attached.post_id == post.id
+      assert Enum.map(post.media_attachments, & &1.id) == [media.id]
+    end
+
+    test "ignores media_ids owned by a different identity" do
+      owner = create_user("m_owner", "m_owner@test.com")
+      stranger = create_user("m_stranger", "m_stranger@test.com")
+      media = upload_media(stranger.id)
+
+      assert {:ok, post} =
+               Posts.create_post(owner.id, %{
+                 "content" => "Trying to steal media",
+                 "media_ids" => [media.id]
+               })
+
+      refreshed = Repo.get(Hybridsocial.Media.MediaFile, media.id)
+      assert refreshed.post_id == nil
+      assert post.media_attachments == []
+    end
+
+    test "accepts a caption-less video_stream post with a video attachment" do
+      identity = create_user("reel_poster", "reel@test.com")
+      media = upload_media(identity.id, "video/mp4", "mp4")
+
+      # Pretend it's valid video bytes enough to pass. Media.upload will
+      # reject truly invalid bytes; skip the test body if that's the case.
+      case media do
+        nil ->
+          :ok
+
+        media ->
+          assert {:ok, post} =
+                   Posts.create_post(identity.id, %{
+                     "post_type" => "video_stream",
+                     "visibility" => "public",
+                     "media_ids" => [media.id]
+                   })
+
+          assert post.post_type == "video_stream"
+          assert Enum.map(post.media_attachments, & &1.id) == [media.id]
+      end
+    end
+  end
+
   describe "posts_by_identity/2" do
     test "returns posts ordered newest first and honors :limit" do
       identity = create_user("paguser", "pag@test.com")

@@ -9,6 +9,10 @@
   let loading = $state(true);
   let error = $state('');
 
+  // Track which posts we've already reported a view for so we don't
+  // double-count the initial `play` event.
+  const viewsReported = new Set<string>();
+
   async function loadStreams() {
     loading = true;
     error = '';
@@ -21,6 +25,43 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function reportView(
+    postId: string,
+    watchDuration: number,
+    totalDuration: number,
+    completed: boolean,
+    replayed: boolean,
+  ) {
+    try {
+      await api.post(`/api/v1/statuses/${postId}/view`, {
+        watch_duration: watchDuration,
+        total_duration: totalDuration,
+        completed,
+        replayed,
+        source: 'streams_feed',
+      });
+    } catch {
+      // View reporting is best-effort — never block playback on it.
+    }
+  }
+
+  function handlePlay(postId: string, event: Event) {
+    if (viewsReported.has(postId)) return;
+    viewsReported.add(postId);
+
+    const video = event.currentTarget as HTMLVideoElement;
+    reportView(postId, 0, video.duration || 0, false, false);
+  }
+
+  function handleEnded(postId: string, event: Event) {
+    const video = event.currentTarget as HTMLVideoElement;
+    const duration = video.duration || 0;
+    const replayed = viewsReported.has(`${postId}:ended`);
+
+    viewsReported.add(`${postId}:ended`);
+    reportView(postId, duration, duration, true, replayed);
   }
 
   onMount(() => {
@@ -67,6 +108,8 @@
                 preload="metadata"
                 class="stream-video"
                 aria-label={videoAttachment.description || 'Video stream'}
+                onplay={(e) => handlePlay(post.id, e)}
+                onended={(e) => handleEnded(post.id, e)}
               >
                 <track kind="captions" />
               </video>

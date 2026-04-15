@@ -26,6 +26,7 @@ defmodule Hybridsocial.Media.MediaFile do
     field :content_hash, :string
 
     belongs_to :identity, Hybridsocial.Accounts.Identity
+    belongs_to :post, Hybridsocial.Social.Post
     has_many :variants, Hybridsocial.Media.MediaVariant, foreign_key: :media_id
 
     timestamps(type: :utc_datetime_usec)
@@ -52,6 +53,11 @@ defmodule Hybridsocial.Media.MediaFile do
     |> validate_inclusion(:storage_backend, @storage_backends)
     |> validate_inclusion(:processing_status, @processing_statuses)
     |> foreign_key_constraint(:identity_id)
+  end
+
+  @doc "Attach a media file to a post. Ownership check happens at the context level."
+  def attach_to_post_changeset(media, post_id) do
+    change(media, post_id: post_id)
   end
 
   def update_alt_text_changeset(media, attrs) do
