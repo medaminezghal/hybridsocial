@@ -67,18 +67,24 @@
     <div class="conversation-header">
       <span class="conversation-name">
         {displayName}
-        {#if conversation.encryption_status === 'at_rest'}
-          <span
-            class="material-symbols-outlined encryption-icon encryption-at-rest"
-            title="Stored encrypted on our servers. Not end-to-end — the server can decrypt."
-            aria-label="Encrypted at rest"
-          >lock</span>
-        {:else if conversation.encryption_status === 'e2ee'}
+        {#if conversation.encryption_status === 'e2ee'}
           <span
             class="material-symbols-outlined encryption-icon encryption-e2ee"
             title="End-to-end encrypted. Only participants can read."
             aria-label="End-to-end encrypted"
           >lock</span>
+        {:else if conversation.encryption_status === 'at_rest'}
+          <span
+            class="material-symbols-outlined encryption-icon encryption-at-rest"
+            title="Stored encrypted on our servers. Not end-to-end — the server can decrypt."
+            aria-label="Encrypted at rest"
+          >lock</span>
+        {:else if conversation.encryption_status === 'federated'}
+          <span
+            class="material-symbols-outlined encryption-icon encryption-federated"
+            title="Not encrypted — the other server received plaintext. DMs with remote users are not private."
+            aria-label="Not encrypted (federated)"
+          >lock_open</span>
         {/if}
       </span>
       <span class="conversation-time">{timeAgo}</span>
@@ -201,6 +207,11 @@
   /* Amber: encrypted at rest, server can decrypt. Not full E2E. */
   .encryption-at-rest {
     color: var(--color-warning, #d97706);
+  }
+
+  /* Red + open lock: federated DM, remote server saw plaintext. */
+  .encryption-federated {
+    color: var(--color-danger, #dc2626);
   }
 
   /* Reserved for future end-to-end encryption (green = fully private). */

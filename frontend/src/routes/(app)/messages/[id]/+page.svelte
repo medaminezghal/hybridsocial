@@ -116,7 +116,28 @@
     {#if avatarUser}
       <Avatar src={avatarUser.avatar_url} name={avatarUser.display_name || avatarUser.handle} size="sm" />
     {/if}
-    <h1 class="detail-title">{displayName}</h1>
+    <h1 class="detail-title">
+      {displayName}
+      {#if conversation?.encryption_status === 'e2ee'}
+        <span
+          class="material-symbols-outlined header-encryption header-e2ee"
+          title="End-to-end encrypted. Only participants can read."
+          aria-label="End-to-end encrypted"
+        >lock</span>
+      {:else if conversation?.encryption_status === 'at_rest'}
+        <span
+          class="material-symbols-outlined header-encryption header-at-rest"
+          title="Stored encrypted on our servers. Not end-to-end — the server can decrypt."
+          aria-label="Encrypted at rest"
+        >lock</span>
+      {:else if conversation?.encryption_status === 'federated'}
+        <span
+          class="material-symbols-outlined header-encryption header-federated"
+          title="Not encrypted — the other server received plaintext. DMs with remote users are not private."
+          aria-label="Not encrypted (federated)"
+        >lock_open</span>
+      {/if}
+    </h1>
   </div>
 
   {#if loading}
@@ -193,6 +214,25 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .header-encryption {
+    font-size: 16px;
+  }
+
+  .header-at-rest {
+    color: var(--color-warning, #d97706);
+  }
+
+  .header-federated {
+    color: var(--color-danger, #dc2626);
+  }
+
+  .header-e2ee {
+    color: var(--color-success, #16a34a);
   }
 
   .detail-loading {
