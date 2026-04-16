@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppLayout from '$lib/components/layout/AppLayout.svelte';
+  import HostingPromo from '$lib/components/marketing/HostingPromo.svelte';
   import { isLoggedIn } from '$lib/stores/auth.js';
 
   let { children } = $props();
@@ -47,36 +48,9 @@
         <a href="/register" class="sidebar-btn sidebar-btn-outline">Create account</a>
       </div>
 
-      <!-- Upsell card -->
-      <div class="sidebar-card sidebar-card-promo">
-        <div class="promo-badge">Managed hosting</div>
-        <h3 class="sidebar-card-title">Launch your own server</h3>
-        <p class="sidebar-card-text">
-          Get a fully managed HybridSocial instance. We handle the infrastructure, updates, and security — you focus on building your community.
-        </p>
-        <ul class="promo-features">
-          <li>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            Your own domain &amp; branding
-          </li>
-          <li>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            Automatic updates &amp; backups
-          </li>
-          <li>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            Full federation support
-          </li>
-          <li>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            Priority support
-          </li>
-        </ul>
-        <a href="https://hybridsocial.io/hosting" class="sidebar-btn sidebar-btn-primary" target="_blank" rel="noopener">
-          Get started &rarr;
-        </a>
-        <p class="promo-note">Plans start at $9/month</p>
-      </div>
+      <!-- Upsell card (shared component; also appears inline on About) -->
+      <HostingPromo />
+
 
       <!-- Links card -->
       <div class="sidebar-card sidebar-card-links">
@@ -255,53 +229,7 @@
     text-decoration: none;
   }
 
-  /* ---- Promo card ---- */
-  .sidebar-card-promo {
-    background: linear-gradient(180deg, #f0fdfa 0%, var(--color-surface-raised) 100%);
-    border-color: var(--color-primary-soft);
-  }
-
-  .promo-badge {
-    display: inline-block;
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--color-primary);
-    background: var(--color-primary-soft);
-    padding: 2px 8px;
-    border-radius: var(--radius-full);
-    margin-block-end: var(--space-3);
-  }
-
-  .promo-features {
-    list-style: none;
-    padding: 0;
-    margin: 0 0 var(--space-4) 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .promo-features li {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: var(--text-sm);
-    color: var(--color-text);
-  }
-
-  .promo-features li svg {
-    flex-shrink: 0;
-  }
-
-  .promo-note {
-    text-align: center;
-    font-size: var(--text-xs);
-    color: var(--color-text-tertiary);
-    margin-block-start: var(--space-2);
-    margin-block-end: 0;
-  }
+  /* Promo card styles moved to HostingPromo.svelte (self-contained). */
 
   /* ---- Links card ---- */
   .sidebar-card-links {
@@ -406,11 +334,6 @@
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
   }
 
-  .sidebar-card-promo:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(13, 148, 136, 0.1);
-  }
-
   .sidebar-btn {
     transition: background var(--transition-fast), border-color var(--transition-fast), transform 0.15s ease;
   }
@@ -435,8 +358,7 @@
       animation: none !important;
     }
 
-    .sidebar-card:hover,
-    .sidebar-card-promo:hover {
+    .sidebar-card:hover {
       transform: none;
     }
   }

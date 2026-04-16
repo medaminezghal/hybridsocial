@@ -4,6 +4,7 @@
   import { getInstanceInfo } from '$lib/api/instance.js';
   import type { PublicSitePage } from '$lib/api/site-pages.js';
   import type { InstanceRule } from '$lib/api/types.js';
+  import HostingPromo from '$lib/components/marketing/HostingPromo.svelte';
 
   let sitePage: PublicSitePage | null = $state(null);
   let rules: InstanceRule[] = $state([]);
@@ -97,6 +98,10 @@
           {/each}
         </ol>
       </section>
+    {/if}
+
+    {#if isAbout}
+      <HostingPromo variant="inline" />
     {/if}
   </article>
 {/if}
