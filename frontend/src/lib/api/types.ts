@@ -184,6 +184,11 @@ export interface Conversation {
   type: 'direct' | 'group_dm';
   accepted: boolean;
   is_local: boolean;
+  // Three-state encryption indicator. "at_rest" = local, encrypted in our
+  // DB, server can decrypt. "federated" = remote participants, plaintext
+  // seen by their server. "e2ee" = reserved for future end-to-end.
+  encryption_status: 'at_rest' | 'federated' | 'e2ee';
+  /** @deprecated use encryption_status */
   is_encrypted: boolean;
   created_by_id: string | null;
   unread_count: number;

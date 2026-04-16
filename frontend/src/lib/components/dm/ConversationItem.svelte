@@ -67,6 +67,19 @@
     <div class="conversation-header">
       <span class="conversation-name">
         {displayName}
+        {#if conversation.encryption_status === 'at_rest'}
+          <span
+            class="material-symbols-outlined encryption-icon encryption-at-rest"
+            title="Stored encrypted on our servers. Not end-to-end — the server can decrypt."
+            aria-label="Encrypted at rest"
+          >lock</span>
+        {:else if conversation.encryption_status === 'e2ee'}
+          <span
+            class="material-symbols-outlined encryption-icon encryption-e2ee"
+            title="End-to-end encrypted. Only participants can read."
+            aria-label="End-to-end encrypted"
+          >lock</span>
+        {/if}
       </span>
       <span class="conversation-time">{timeAgo}</span>
     </div>
@@ -177,6 +190,22 @@
     font-weight: 700;
     line-height: 1;
     flex-shrink: 0;
+  }
+
+  .encryption-icon {
+    font-size: 14px;
+    vertical-align: middle;
+    margin-inline-start: 4px;
+  }
+
+  /* Amber: encrypted at rest, server can decrypt. Not full E2E. */
+  .encryption-at-rest {
+    color: var(--color-warning, #d97706);
+  }
+
+  /* Reserved for future end-to-end encryption (green = fully private). */
+  .encryption-e2ee {
+    color: var(--color-success, #16a34a);
   }
 
   .conversation-pending {

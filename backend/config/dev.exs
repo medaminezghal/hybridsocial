@@ -65,5 +65,11 @@ config :hybridsocial, Hybridsocial.Mailer, adapter: Swoosh.Adapters.Local
 # Skip HTTP signature verification in dev (no real remote servers)
 config :hybridsocial, federation_signature_check: false
 
+# At-rest DM encryption key (dev-only fixed value; production loads from
+# MESSAGE_ENCRYPTION_KEY env var in runtime.exs).
+config :hybridsocial,
+       :message_encryption_key,
+       "dev-only-not-for-production-32byte-key!!"
+
 # Initialize plugs at runtime for faster development compilation
 config :phoenix, :plug_init_mode, :runtime

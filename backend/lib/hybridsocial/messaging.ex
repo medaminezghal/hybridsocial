@@ -232,56 +232,81 @@ defmodule Hybridsocial.Messaging do
     else
       now = DateTime.utc_now()
 
-      message_attrs =
-        attrs
-        |> Map.put("conversation_id", conversation_id)
-        |> Map.put("sender_id", sender_id)
-
-      Ecto.Multi.new()
-      |> Ecto.Multi.insert(:message, Message.changeset(%Message{created_at: now}, message_attrs))
-      |> Ecto.Multi.run(:update_conversation, fn repo, %{message: _msg} ->
-        Conversation
-        |> where([c], c.id == ^conversation_id)
-        |> repo.update_all(set: [updated_at: now])
-
-        {:ok, :updated}
-      end)
-      |> Ecto.Multi.run(:delivery_statuses, fn repo, %{message: msg} ->
-        recipients =
-          Participant
-          |> where(
-            [p],
-            p.conversation_id == ^conversation_id and p.identity_id != ^sender_id and
-              is_nil(p.left_at)
-          )
-          |> select([p], p.identity_id)
-          |> repo.all()
-
-        statuses =
-          Enum.map(recipients, fn recipient_id ->
-            %DeliveryStatus{}
-            |> DeliveryStatus.changeset(%{
-              message_id: msg.id,
-              recipient_id: recipient_id,
-              status: "sent"
-            })
-            |> repo.insert!()
-          end)
-
-        {:ok, statuses}
-      end)
-      |> Repo.transaction()
-      |> case do
-        {:ok, %{message: message}} ->
-          broadcast_new_message(message)
-          {:ok, message}
-
-        {:error, :message, changeset, _changes} ->
-          {:error, changeset}
-
-        {:error, _step, reason, _changes} ->
-          {:error, reason}
+      with {:ok, encrypted_attrs} <- encrypt_message_attrs(conversation_id, sender_id, attrs) do
+        do_send_message(conversation_id, sender_id, encrypted_attrs, now)
       end
+    end
+  end
+
+  defp encrypt_message_attrs(conversation_id, sender_id, attrs) do
+    plaintext = attrs["content"] || ""
+
+    case Hybridsocial.Messaging.Crypto.encrypt(plaintext, conversation_id) do
+      {:ok, ciphertext, nonce, version} ->
+        encrypted =
+          attrs
+          |> Map.delete("content")
+          |> Map.put("conversation_id", conversation_id)
+          |> Map.put("sender_id", sender_id)
+          |> Map.put("ciphertext", ciphertext)
+          |> Map.put("nonce", nonce)
+          |> Map.put("encryption_version", version)
+
+        {:ok, encrypted}
+
+      {:error, reason} ->
+        {:error, {:encryption_failed, reason}}
+    end
+  end
+
+  defp do_send_message(conversation_id, sender_id, message_attrs, now) do
+    Ecto.Multi.new()
+    |> Ecto.Multi.insert(
+      :message,
+      Message.encrypted_changeset(%Message{created_at: now}, message_attrs)
+    )
+    |> Ecto.Multi.run(:update_conversation, fn repo, %{message: _msg} ->
+      Conversation
+      |> where([c], c.id == ^conversation_id)
+      |> repo.update_all(set: [updated_at: now])
+
+      {:ok, :updated}
+    end)
+    |> Ecto.Multi.run(:delivery_statuses, fn repo, %{message: msg} ->
+      recipients =
+        Participant
+        |> where(
+          [p],
+          p.conversation_id == ^conversation_id and p.identity_id != ^sender_id and
+            is_nil(p.left_at)
+        )
+        |> select([p], p.identity_id)
+        |> repo.all()
+
+      statuses =
+        Enum.map(recipients, fn recipient_id ->
+          %DeliveryStatus{}
+          |> DeliveryStatus.changeset(%{
+            message_id: msg.id,
+            recipient_id: recipient_id,
+            status: "sent"
+          })
+          |> repo.insert!()
+        end)
+
+      {:ok, statuses}
+    end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{message: message}} ->
+        broadcast_new_message(message)
+        {:ok, decrypt_message(message)}
+
+      {:error, :message, changeset, _changes} ->
+        {:error, changeset}
+
+      {:error, _step, reason, _changes} ->
+        {:error, reason}
     end
   end
 
@@ -292,9 +317,23 @@ defmodule Hybridsocial.Messaging do
         {:error, :not_found}
 
       %Message{sender_id: ^sender_id, deleted_at: nil} = message ->
-        message
-        |> Message.edit_changeset(%{content: new_content, edited_at: DateTime.utc_now()})
-        |> Repo.update()
+        case Hybridsocial.Messaging.Crypto.encrypt(new_content, message.conversation_id) do
+          {:ok, ciphertext, nonce, version} ->
+            case message
+                 |> Message.edit_encrypted_changeset(%{
+                   ciphertext: ciphertext,
+                   nonce: nonce,
+                   encryption_version: version,
+                   edited_at: DateTime.utc_now()
+                 })
+                 |> Repo.update() do
+              {:ok, updated} -> {:ok, decrypt_message(updated)}
+              other -> other
+            end
+
+          {:error, reason} ->
+            {:error, {:encryption_failed, reason}}
+        end
 
       %Message{deleted_at: deleted_at} when not is_nil(deleted_at) ->
         {:error, :not_found}
@@ -337,12 +376,35 @@ defmodule Hybridsocial.Messaging do
         |> offset(^offset)
         |> preload([:sender])
         |> Repo.all()
+        |> Enum.map(&decrypt_message/1)
 
       {:ok, messages}
     else
       {:error, :not_found}
     end
   end
+
+  @doc """
+  Decrypts a message in-place: populates `content` with the plaintext for
+  the caller, leaving ciphertext/nonce intact on the struct. Version 0
+  rows pass through untouched. Decryption failures leave `content` nil
+  and tag the struct with an error atom (never crashes a list fetch).
+  """
+  def decrypt_message(%Message{encryption_version: 0} = message), do: message
+
+  def decrypt_message(%Message{encryption_version: v} = message) when v > 0 do
+    case Hybridsocial.Messaging.Crypto.decrypt(
+           message.ciphertext,
+           message.nonce,
+           message.conversation_id,
+           message.encryption_version
+         ) do
+      {:ok, plaintext} -> %{message | content: plaintext}
+      {:error, _reason} -> %{message | content: nil}
+    end
+  end
+
+  def decrypt_message(other), do: other
 
   @doc "Mark all messages in a conversation as read for an identity."
   def mark_read(conversation_id, identity_id) do
@@ -673,7 +735,7 @@ defmodule Hybridsocial.Messaging do
 
   @doc "Broadcast a new message to all conversation participants."
   def broadcast_new_message(message) do
-    message = Repo.preload(message, :sender)
+    message = message |> Repo.preload(:sender) |> decrypt_message()
 
     broadcast_conversation_event(message.conversation_id, :new_message, %{
       id: message.id,

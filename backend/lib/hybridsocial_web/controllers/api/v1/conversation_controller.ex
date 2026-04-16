@@ -233,11 +233,24 @@ defmodule HybridsocialWeb.Api.V1.ConversationController do
         participants -> Enum.map(participants, &serialize_participant/1)
       end
 
+    # Three explicit encryption states the frontend renders as three
+    # different icons. Don't conflate them into a single boolean.
+    #   - "at_rest"   (amber lock): local conversation, ciphertext in DB,
+    #                  server holds the master key — can decrypt if compelled.
+    #   - "federated" (no lock): at least one remote participant. Our side
+    #                  is still encrypted at rest, but the remote server
+    #                  received plaintext in the AP envelope.
+    #   - "e2ee"      (green lock): reserved for future end-to-end. Never
+    #                  emitted today.
+    encryption_status = if conversation.is_local, do: "at_rest", else: "federated"
+
     %{
       id: conversation.id,
       type: conversation.type,
       accepted: conversation.accepted,
       is_local: conversation.is_local,
+      encryption_status: encryption_status,
+      # Legacy field kept for the old clients; deprecated by encryption_status.
       is_encrypted: conversation.is_local == true,
       created_by_id: conversation.created_by_id,
       participants: participants,

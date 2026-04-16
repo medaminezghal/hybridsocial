@@ -48,6 +48,13 @@ if instance_private_key = System.get_env("INSTANCE_PRIVATE_KEY") do
   config :hybridsocial, :instance_private_key, decoded
 end
 
+# At-rest DM encryption master key. 32 random bytes, base64-encoded.
+# Generate with: `openssl rand -base64 32`
+# Losing this key makes all encrypted DMs unrecoverable — back it up.
+if message_encryption_key = System.get_env("MESSAGE_ENCRYPTION_KEY") do
+  config :hybridsocial, :message_encryption_key, message_encryption_key
+end
+
 # Media host — separate domain/subdomain for serving user uploads (security)
 # Must match Caddy/reverse proxy config. Example: https://media.hybridsocial.com
 if media_host = System.get_env("MEDIA_HOST") do

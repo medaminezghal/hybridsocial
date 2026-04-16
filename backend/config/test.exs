@@ -32,6 +32,11 @@ config :hybridsocial, federation_signature_check: false
 # Use DB 1 for tests to avoid conflicts with dev data
 config :hybridsocial, :valkey_url, "redis://localhost:6379/1"
 
+# Fixed at-rest DM encryption key for deterministic tests.
+config :hybridsocial,
+       :message_encryption_key,
+       "test-only-not-for-production-32byte!!!!"
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

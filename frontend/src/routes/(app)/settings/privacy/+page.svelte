@@ -94,6 +94,28 @@
 
     <div class="setting-divider"></div>
 
+    <div class="encryption-notice">
+      <div class="encryption-notice-title">
+        <span class="material-symbols-outlined encryption-notice-icon">lock</span>
+        <span>Direct message encryption</span>
+      </div>
+      <p>
+        <strong>Local DMs are encrypted at rest</strong> — stored as ciphertext
+        in our database with a per-conversation key (amber lock icon in your
+        inbox). We can decrypt them if compelled. This is not end-to-end encryption.
+      </p>
+      <p>
+        DMs with people on other servers travel over HTTPS but the remote
+        server sees plaintext.
+      </p>
+      <p class="encryption-notice-dim">
+        End-to-end encryption (green lock) is on the roadmap. Until then,
+        use Signal or Matrix for conversations that must stay private.
+      </p>
+    </div>
+
+    <div class="setting-divider"></div>
+
     <div class="form-group">
       <label class="form-label" for="dm-pref">Who can send you direct messages</label>
       <select id="dm-pref" class="input" bind:value={dmPreference}>
@@ -193,6 +215,42 @@
   .setting-divider {
     height: 1px;
     background: var(--color-border);
+  }
+
+  .encryption-notice {
+    background: var(--color-surface-alt, rgba(0,0,0,0.03));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    font-size: var(--text-sm);
+    color: var(--color-text);
+  }
+
+  .encryption-notice-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-weight: 700;
+    margin-block-end: var(--space-2);
+  }
+
+  .encryption-notice-icon {
+    font-size: 18px;
+    color: var(--color-warning, #d97706);
+  }
+
+  .encryption-notice p {
+    margin: 0 0 var(--space-2) 0;
+    line-height: 1.5;
+  }
+
+  .encryption-notice p:last-child {
+    margin-block-end: 0;
+  }
+
+  .encryption-notice-dim {
+    color: var(--color-text-tertiary);
+    font-size: var(--text-xs);
   }
 
   .form-group {
