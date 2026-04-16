@@ -47,6 +47,31 @@ defmodule HybridsocialWeb.Api.V1.GroupControllerTest do
       assert response["id"] != nil
     end
 
+    test "defaults federation_mode to local_only and echoes it back", %{conn: conn} do
+      conn = post(conn, "/api/v1/groups", %{"name" => "Default mode"})
+      assert json_response(conn, 201)["federation_mode"] == "local_only"
+    end
+
+    test "accepts federation_mode: public_federated at creation", %{conn: conn} do
+      conn =
+        post(conn, "/api/v1/groups", %{
+          "name" => "Public fed",
+          "federation_mode" => "public_federated"
+        })
+
+      assert json_response(conn, 201)["federation_mode"] == "public_federated"
+    end
+
+    test "rejects unknown federation_mode with 422", %{conn: conn} do
+      conn =
+        post(conn, "/api/v1/groups", %{
+          "name" => "Bad mode",
+          "federation_mode" => "hybrid-cosmic"
+        })
+
+      assert json_response(conn, 422)["error"] == "validation.failed"
+    end
+
     test "returns errors for missing name", %{conn: conn} do
       conn = post(conn, "/api/v1/groups", %{})
       response = json_response(conn, 422)
@@ -57,6 +82,28 @@ defmodule HybridsocialWeb.Api.V1.GroupControllerTest do
       conn = build_conn()
       conn = post(conn, "/api/v1/groups", %{"name" => "Group"})
       assert json_response(conn, 401)
+    end
+  end
+
+  describe "PATCH /api/v1/groups/:id (federation_mode is locked)" do
+    setup :setup_user
+
+    test "silently ignores a federation_mode change attempt", %{conn: conn, identity: identity} do
+      {:ok, group} =
+        Groups.create_group(identity.id, %{
+          "name" => "Locked",
+          "federation_mode" => "local_only"
+        })
+
+      conn =
+        patch(conn, "/api/v1/groups/#{group.id}", %{
+          "name" => "Still locked",
+          "federation_mode" => "public_federated"
+        })
+
+      response = json_response(conn, 200)
+      assert response["name"] == "Still locked"
+      assert response["federation_mode"] == "local_only"
     end
   end
 
