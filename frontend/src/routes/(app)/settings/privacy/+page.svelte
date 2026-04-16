@@ -10,6 +10,7 @@
 
   let isLocked: boolean = $state(false);
   let discoverable: boolean = $state(true);
+  let allowUnfurl: boolean = $state(true);
   let dmPreference: string = $state('everyone');
   let groupDmOptIn: boolean = $state(false);
   let loaded = $state(false);
@@ -23,6 +24,7 @@
     if (state.user) {
       isLocked = state.user.is_locked ?? false;
       discoverable = (state.user as any).discoverable ?? true;
+      allowUnfurl = (state.user as any).allow_unfurl ?? true;
     }
 
     // Load default visibility from local preferences
@@ -47,6 +49,7 @@
       const updated = await updateAccount({
         is_locked: isLocked,
         discoverable,
+        allow_unfurl: allowUnfurl,
       } as any);
       setUser(updated);
 
@@ -90,6 +93,20 @@
         </span>
       </div>
       <Toggle bind:checked={discoverable} name="discoverable" />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Allow link previews of my profile</span>
+        <span class="setting-description">
+          When someone shares <code>/@{'{'}your-handle{'}'}</code> on WhatsApp,
+          Telegram, Facebook, Discord, etc., the link can unfurl into a card
+          with your display name, avatar, and bio. Turn this off and those
+          platforms only see a generic placeholder — the link still works,
+          but your profile details aren't exposed to external services.
+        </span>
+      </div>
+      <Toggle bind:checked={allowUnfurl} name="allow-unfurl" />
     </div>
 
     <div class="setting-divider"></div>

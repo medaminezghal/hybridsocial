@@ -49,6 +49,12 @@ defmodule Hybridsocial.Accounts.Identity do
     # settings.
     field :discoverable, :boolean, default: true
 
+    # Whether social crawlers (FacebookExternalHit, TelegramBot, etc.)
+    # see full profile info when unfurling a /@handle link on external
+    # platforms. When false, crawlers get a placeholder OG shell only.
+    # Default true — opt-out.
+    field :allow_unfurl, :boolean, default: true
+
     # Subaccount hierarchy: bots, groups, and organizations belong to a parent user
     belongs_to :parent, __MODULE__, foreign_key: :parent_identity_id
     has_many :children, __MODULE__, foreign_key: :parent_identity_id
@@ -86,7 +92,8 @@ defmodule Hybridsocial.Accounts.Identity do
     :is_locked,
     :show_badge,
     :birthday,
-    :discoverable
+    :discoverable,
+    :allow_unfurl
   ]
 
   # Subaccounts can also toggle is_bot

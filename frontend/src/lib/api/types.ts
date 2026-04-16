@@ -32,6 +32,7 @@ export interface Identity {
   is_bot: boolean;
   is_admin: boolean;
   discoverable?: boolean;
+  allow_unfurl?: boolean;
   roles: string[];
   permissions: string[];
   two_factor_enabled: boolean;

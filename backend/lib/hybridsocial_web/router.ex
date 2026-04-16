@@ -878,4 +878,15 @@ defmodule HybridsocialWeb.Router do
 
     post "/inbox", InboxController, :shared_inbox
   end
+
+  # Server-rendered OG/social-sharing shells for crawlers. Browser requests
+  # that land here get a thin redirect to the SPA. In production the
+  # reverse proxy can route /post/*, /@*, /legal/* to Phoenix for known
+  # crawler user-agents and straight to the SPA bundle otherwise.
+  scope "/", HybridsocialWeb do
+    get "/robots.txt", CrawlerController, :robots
+    get "/post/:id", CrawlerController, :post
+    get "/@:handle", CrawlerController, :profile
+    get "/legal/:slug", CrawlerController, :legal
+  end
 end
