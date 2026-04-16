@@ -41,7 +41,9 @@ defmodule HybridsocialWeb.CrawlerController do
   alias Hybridsocial.SitePages
   alias HybridsocialWeb.Helpers.UserAgent
 
-  @placeholder_image_path "/og/default.png"
+  # Fallback OG image. The operator can override with the `instance_og_image`
+  # config key; otherwise we use the site's default brand icon.
+  @placeholder_image_path "/icons/icon.svg"
 
   # ---------------------------------------------------------------------------
   # GET /post/:id
@@ -97,6 +99,97 @@ defmodule HybridsocialWeb.CrawlerController do
       send_spa_handoff(conn)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # GET /sitemap.xml
+  # ---------------------------------------------------------------------------
+
+  @sitemap_post_limit 1000
+  @sitemap_profile_limit 1000
+
+  def sitemap(conn, _params) do
+    base = base_url()
+
+    static_urls = [
+      sitemap_url(base, "/", priority: "1.0", changefreq: "daily"),
+      sitemap_url(base, "/directory", priority: "0.8", changefreq: "daily"),
+      sitemap_url(base, "/legal/about", priority: "0.6", changefreq: "monthly"),
+      sitemap_url(base, "/legal/privacy", priority: "0.4", changefreq: "yearly"),
+      sitemap_url(base, "/legal/terms", priority: "0.4", changefreq: "yearly")
+    ]
+
+    post_urls =
+      Post
+      |> where([p], p.visibility == "public")
+      |> where([p], is_nil(p.deleted_at))
+      |> where([p], is_nil(p.ap_id))
+      |> order_by([p], desc: p.inserted_at)
+      |> limit(^@sitemap_post_limit)
+      |> select([p], {p.id, p.updated_at})
+      |> Repo.all()
+      |> Enum.map(fn {id, updated_at} ->
+        sitemap_url(base, "/post/#{id}",
+          lastmod: iso8601(updated_at),
+          priority: "0.7",
+          changefreq: "weekly"
+        )
+      end)
+
+    profile_urls =
+      Hybridsocial.Accounts.Identity
+      |> where([i], i.type == "user")
+      |> where([i], is_nil(i.deleted_at))
+      |> where([i], i.is_suspended == false)
+      |> where([i], i.is_shadow_banned == false)
+      |> where([i], i.allow_unfurl == true)
+      |> where([i], is_nil(i.parent_identity_id))
+      |> order_by([i], desc: i.inserted_at)
+      |> limit(^@sitemap_profile_limit)
+      |> select([i], {i.handle, i.updated_at})
+      |> Repo.all()
+      |> Enum.map(fn {handle, updated_at} ->
+        sitemap_url(base, "/@#{handle}",
+          lastmod: iso8601(updated_at),
+          priority: "0.6",
+          changefreq: "weekly"
+        )
+      end)
+
+    body =
+      [
+        ~s(<?xml version="1.0" encoding="UTF-8"?>\n),
+        ~s(<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n),
+        static_urls,
+        post_urls,
+        profile_urls,
+        "</urlset>\n"
+      ]
+      |> IO.iodata_to_binary()
+
+    conn
+    |> put_resp_content_type("application/xml; charset=utf-8")
+    |> send_resp(200, body)
+  end
+
+  defp sitemap_url(base, path, opts) do
+    loc = escape_html(base <> path)
+    lastmod = Keyword.get(opts, :lastmod)
+    priority = Keyword.get(opts, :priority)
+    changefreq = Keyword.get(opts, :changefreq)
+
+    [
+      "  <url>\n",
+      "    <loc>#{loc}</loc>\n",
+      if(lastmod, do: "    <lastmod>#{lastmod}</lastmod>\n", else: ""),
+      if(changefreq, do: "    <changefreq>#{changefreq}</changefreq>\n", else: ""),
+      if(priority, do: "    <priority>#{priority}</priority>\n", else: ""),
+      "  </url>\n"
+    ]
+  end
+
+  defp iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp iso8601(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)
+  defp iso8601(_), do: nil
 
   # ---------------------------------------------------------------------------
   # GET /robots.txt

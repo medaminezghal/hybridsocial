@@ -885,6 +885,7 @@ defmodule HybridsocialWeb.Router do
   # crawler user-agents and straight to the SPA bundle otherwise.
   scope "/", HybridsocialWeb do
     get "/robots.txt", CrawlerController, :robots
+    get "/sitemap.xml", CrawlerController, :sitemap
     get "/post/:id", CrawlerController, :post
     get "/@:handle", CrawlerController, :profile
     get "/legal/:slug", CrawlerController, :legal

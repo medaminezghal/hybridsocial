@@ -141,6 +141,34 @@ defmodule HybridsocialWeb.CrawlerControllerTest do
     end
   end
 
+  describe "GET /sitemap.xml" do
+    test "lists public local posts and discoverable-unfurlable profiles" do
+      alice = register("sitemap_alice")
+      {:ok, public} = Posts.create_post(alice.id, %{"content" => "public hi"})
+
+      {:ok, private} =
+        Posts.create_post(alice.id, %{"content" => "shh", "visibility" => "followers"})
+
+      hidden = register("sitemap_hidden")
+
+      hidden
+      |> Ecto.Changeset.change(%{allow_unfurl: false})
+      |> Repo.update!()
+
+      conn = get(build_conn(), "/sitemap.xml")
+      body = response(conn, 200)
+
+      content_type = get_resp_header(conn, "content-type") |> hd()
+      assert content_type =~ "application/xml"
+      assert body =~ "<urlset"
+      assert body =~ "/legal/about"
+      assert body =~ "/post/#{public.id}"
+      refute body =~ "/post/#{private.id}"
+      assert body =~ "/@#{alice.handle}"
+      refute body =~ "/@#{hidden.handle}"
+    end
+  end
+
   describe "GET /robots.txt" do
     test "returns a robots.txt with the expected rules" do
       conn = get(build_conn(), "/robots.txt")

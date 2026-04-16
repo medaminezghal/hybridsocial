@@ -25,6 +25,10 @@
   let followedIds = $state<Set<string>>(new Set());
   let suggestionsLoading = $state(false);
 
+  // Step 3: Privacy — link-preview unfurl default. Opt-out model: users
+  // keep this checked unless they specifically want private profiles.
+  let allowUnfurl = $state(true);
+
   function handleAvatarChange(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -69,7 +73,10 @@
 
   async function markOnboarded() {
     try {
-      const updated = await api.patch<Identity>('/api/v1/accounts/update_credentials', { onboarded: true });
+      const updated = await api.patch<Identity>(
+        '/api/v1/accounts/update_credentials',
+        { onboarded: true, allow_unfurl: allowUnfurl },
+      );
       setUser(updated);
     } catch { /* */ }
   }
@@ -165,13 +172,27 @@
       </div>
 
     {:else}
-      <!-- Step 3: Done -->
+      <!-- Step 3: Privacy preference + Done -->
       <div class="onboarding-step done-step">
         <div class="done-icon">
           <span class="material-symbols-outlined" style="font-size: 48px; color: var(--color-success)">check_circle</span>
         </div>
         <h2 class="step-title">You're all set!</h2>
-        <p class="step-desc">Start posting, explore trending topics, and connect with people.</p>
+        <p class="step-desc">One last thing before you start.</p>
+
+        <label class="unfurl-row">
+          <input type="checkbox" bind:checked={allowUnfurl} />
+          <div class="unfurl-body">
+            <span class="unfurl-label">Let link previews show my profile</span>
+            <span class="unfurl-desc">
+              When someone shares a link to your profile on WhatsApp, Telegram,
+              Facebook, or Discord, the link can unfurl into a preview card
+              with your display name, avatar, and bio. Search engines also
+              use this to index your profile page. You can change this any
+              time in Settings → Privacy.
+            </span>
+          </div>
+        </label>
       </div>
     {/if}
 
@@ -361,6 +382,42 @@
 
   .done-step { padding: 20px 0; }
   .done-icon { text-align: center; margin-bottom: 12px; }
+
+  .unfurl-row {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    margin-block-start: var(--space-5);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .unfurl-row input[type="checkbox"] {
+    margin-block-start: 4px;
+    flex-shrink: 0;
+  }
+
+  .unfurl-body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .unfurl-label {
+    display: block;
+    font-weight: 600;
+    color: var(--color-text);
+    margin-block-end: var(--space-1);
+  }
+
+  .unfurl-desc {
+    display: block;
+    font-size: var(--text-sm);
+    color: var(--color-text-tertiary);
+    line-height: 1.4;
+  }
 
   .onboarding-actions {
     display: flex;
