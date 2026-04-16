@@ -141,29 +141,86 @@ defmodule HybridsocialWeb.CrawlerControllerTest do
     end
   end
 
-  describe "GET /sitemap.xml" do
-    test "lists public local posts and discoverable-unfurlable profiles" do
-      alice = register("sitemap_alice")
-      {:ok, public} = Posts.create_post(alice.id, %{"content" => "public hi"})
-
-      {:ok, private} =
-        Posts.create_post(alice.id, %{"content" => "shh", "visibility" => "followers"})
-
-      hidden = register("sitemap_hidden")
-
-      hidden
-      |> Ecto.Changeset.change(%{allow_unfurl: false})
-      |> Repo.update!()
+  describe "GET /sitemap.xml (index)" do
+    test "returns a sitemapindex pointing at child sitemaps" do
+      alice = register("smp_idx")
+      {:ok, _post} = Posts.create_post(alice.id, %{"content" => "indexed"})
 
       conn = get(build_conn(), "/sitemap.xml")
       body = response(conn, 200)
 
       content_type = get_resp_header(conn, "content-type") |> hd()
       assert content_type =~ "application/xml"
+      assert body =~ "<sitemapindex"
+      assert body =~ "/sitemap/static"
+      assert body =~ "/sitemap/posts/1"
+      assert body =~ "/sitemap/profiles/1"
+    end
+
+    test "posts index entries reflect the actual post count" do
+      # No posts at all → no /sitemap/posts/ entry in the index.
+      conn = get(build_conn(), "/sitemap.xml")
+      body = response(conn, 200)
+
+      assert body =~ "/sitemap/static"
+      refute body =~ "/sitemap/posts/"
+    end
+  end
+
+  describe "GET /sitemap/static" do
+    test "emits the static page URLs" do
+      conn = get(build_conn(), "/sitemap/static")
+      body = response(conn, 200)
+
       assert body =~ "<urlset"
       assert body =~ "/legal/about"
+      assert body =~ "/legal/privacy"
+      assert body =~ "/directory"
+    end
+  end
+
+  describe "GET /sitemap/posts/:page" do
+    test "returns page 1 with only public+local posts" do
+      alice = register("smp_p_a")
+      {:ok, public} = Posts.create_post(alice.id, %{"content" => "public hi"})
+
+      {:ok, private} =
+        Posts.create_post(alice.id, %{"content" => "shh", "visibility" => "followers"})
+
+      conn = get(build_conn(), "/sitemap/posts/1")
+      body = response(conn, 200)
+
+      assert body =~ "<urlset"
       assert body =~ "/post/#{public.id}"
       refute body =~ "/post/#{private.id}"
+    end
+
+    test "page out of range returns an empty urlset (not 404)" do
+      conn = get(build_conn(), "/sitemap/posts/999999")
+      body = response(conn, 200)
+
+      assert body =~ "<urlset"
+      refute body =~ "<url>"
+    end
+
+    test "invalid page param normalizes to 1" do
+      conn = get(build_conn(), "/sitemap/posts/not-a-number")
+      assert response(conn, 200) =~ "<urlset"
+    end
+  end
+
+  describe "GET /sitemap/profiles/:page" do
+    test "lists discoverable+unfurl-allowed profiles" do
+      alice = register("smp_pr_a")
+      hidden = register("smp_pr_h")
+
+      hidden
+      |> Ecto.Changeset.change(%{allow_unfurl: false})
+      |> Repo.update!()
+
+      conn = get(build_conn(), "/sitemap/profiles/1")
+      body = response(conn, 200)
+
       assert body =~ "/@#{alice.handle}"
       refute body =~ "/@#{hidden.handle}"
     end

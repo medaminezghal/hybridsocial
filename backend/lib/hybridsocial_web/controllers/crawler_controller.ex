@@ -101,16 +101,41 @@ defmodule HybridsocialWeb.CrawlerController do
   end
 
   # ---------------------------------------------------------------------------
-  # GET /sitemap.xml
+  # Sitemaps — index + paginated child sitemaps
+  #
+  # The protocol allows 50,000 URLs and 50MB per sitemap. We cap at 5,000 per
+  # child — comfortably under the limits, and an instance with millions of
+  # posts still only needs ~1000 child sitemaps.
   # ---------------------------------------------------------------------------
 
-  @sitemap_post_limit 1000
-  @sitemap_profile_limit 1000
+  @sitemap_per_page 5000
 
+  @doc "GET /sitemap.xml — sitemap index pointing at child sitemaps."
   def sitemap(conn, _params) do
     base = base_url()
 
-    static_urls = [
+    child_entries =
+      [sitemap_index_entry(base, "/sitemap/static")] ++
+        post_page_entries(base) ++
+        profile_page_entries(base)
+
+    body =
+      [
+        ~s(<?xml version="1.0" encoding="UTF-8"?>\n),
+        ~s(<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n),
+        child_entries,
+        "</sitemapindex>\n"
+      ]
+      |> IO.iodata_to_binary()
+
+    send_xml(conn, body)
+  end
+
+  @doc "GET /sitemap/static — home, directory, legal pages."
+  def sitemap_static(conn, _params) do
+    base = base_url()
+
+    urls = [
       sitemap_url(base, "/", priority: "1.0", changefreq: "daily"),
       sitemap_url(base, "/directory", priority: "0.8", changefreq: "daily"),
       sitemap_url(base, "/legal/about", priority: "0.6", changefreq: "monthly"),
@@ -118,13 +143,20 @@ defmodule HybridsocialWeb.CrawlerController do
       sitemap_url(base, "/legal/terms", priority: "0.4", changefreq: "yearly")
     ]
 
-    post_urls =
-      Post
-      |> where([p], p.visibility == "public")
-      |> where([p], is_nil(p.deleted_at))
-      |> where([p], is_nil(p.ap_id))
+    send_xml(conn, urlset(urls))
+  end
+
+  @doc "GET /sitemap/posts/:page — paginated public posts."
+  def sitemap_posts(conn, %{"page" => page_param}) do
+    page = parse_page(page_param)
+    base = base_url()
+    offset_n = (page - 1) * @sitemap_per_page
+
+    urls =
+      public_posts_query()
       |> order_by([p], desc: p.inserted_at)
-      |> limit(^@sitemap_post_limit)
+      |> offset(^offset_n)
+      |> limit(^@sitemap_per_page)
       |> select([p], {p.id, p.updated_at})
       |> Repo.all()
       |> Enum.map(fn {id, updated_at} ->
@@ -135,16 +167,20 @@ defmodule HybridsocialWeb.CrawlerController do
         )
       end)
 
-    profile_urls =
-      Hybridsocial.Accounts.Identity
-      |> where([i], i.type == "user")
-      |> where([i], is_nil(i.deleted_at))
-      |> where([i], i.is_suspended == false)
-      |> where([i], i.is_shadow_banned == false)
-      |> where([i], i.allow_unfurl == true)
-      |> where([i], is_nil(i.parent_identity_id))
+    send_xml(conn, urlset(urls))
+  end
+
+  @doc "GET /sitemap/profiles/:page — paginated discoverable profiles."
+  def sitemap_profiles(conn, %{"page" => page_param}) do
+    page = parse_page(page_param)
+    base = base_url()
+    offset_n = (page - 1) * @sitemap_per_page
+
+    urls =
+      discoverable_profiles_query()
       |> order_by([i], desc: i.inserted_at)
-      |> limit(^@sitemap_profile_limit)
+      |> offset(^offset_n)
+      |> limit(^@sitemap_per_page)
       |> select([i], {i.handle, i.updated_at})
       |> Repo.all()
       |> Enum.map(fn {handle, updated_at} ->
@@ -155,20 +191,73 @@ defmodule HybridsocialWeb.CrawlerController do
         )
       end)
 
-    body =
-      [
-        ~s(<?xml version="1.0" encoding="UTF-8"?>\n),
-        ~s(<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n),
-        static_urls,
-        post_urls,
-        profile_urls,
-        "</urlset>\n"
-      ]
-      |> IO.iodata_to_binary()
+    send_xml(conn, urlset(urls))
+  end
 
+  # ---------------------------------------------------------------------------
+  # Sitemap helpers
+  # ---------------------------------------------------------------------------
+
+  defp public_posts_query do
+    Post
+    |> where([p], p.visibility == "public")
+    |> where([p], is_nil(p.deleted_at))
+    |> where([p], is_nil(p.ap_id))
+  end
+
+  defp discoverable_profiles_query do
+    Hybridsocial.Accounts.Identity
+    |> where([i], i.type == "user")
+    |> where([i], is_nil(i.deleted_at))
+    |> where([i], i.is_suspended == false)
+    |> where([i], i.is_shadow_banned == false)
+    |> where([i], i.allow_unfurl == true)
+    |> where([i], is_nil(i.parent_identity_id))
+  end
+
+  defp post_page_entries(base) do
+    count = Repo.aggregate(public_posts_query(), :count)
+    pages = ceil_div(count, @sitemap_per_page)
+
+    for page <- 1..pages//1 do
+      sitemap_index_entry(base, "/sitemap/posts/#{page}")
+    end
+  end
+
+  defp profile_page_entries(base) do
+    count = Repo.aggregate(discoverable_profiles_query(), :count)
+    pages = ceil_div(count, @sitemap_per_page)
+
+    for page <- 1..pages//1 do
+      sitemap_index_entry(base, "/sitemap/profiles/#{page}")
+    end
+  end
+
+  defp ceil_div(0, _), do: 0
+  defp ceil_div(n, d), do: div(n + d - 1, d)
+
+  defp urlset(urls) do
+    [
+      ~s(<?xml version="1.0" encoding="UTF-8"?>\n),
+      ~s(<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n),
+      urls,
+      "</urlset>\n"
+    ]
+    |> IO.iodata_to_binary()
+  end
+
+  defp send_xml(conn, body) do
     conn
     |> put_resp_content_type("application/xml; charset=utf-8")
     |> send_resp(200, body)
+  end
+
+  defp sitemap_index_entry(base, path) do
+    [
+      "  <sitemap>\n",
+      "    <loc>#{escape_html(base <> path)}</loc>\n",
+      "  </sitemap>\n"
+    ]
   end
 
   defp sitemap_url(base, path, opts) do
@@ -186,6 +275,15 @@ defmodule HybridsocialWeb.CrawlerController do
       "  </url>\n"
     ]
   end
+
+  defp parse_page(val) when is_binary(val) do
+    case Integer.parse(val) do
+      {n, _} when n > 0 -> n
+      _ -> 1
+    end
+  end
+
+  defp parse_page(_), do: 1
 
   defp iso8601(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
   defp iso8601(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)

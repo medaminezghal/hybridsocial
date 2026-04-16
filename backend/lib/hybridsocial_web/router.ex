@@ -886,6 +886,9 @@ defmodule HybridsocialWeb.Router do
   scope "/", HybridsocialWeb do
     get "/robots.txt", CrawlerController, :robots
     get "/sitemap.xml", CrawlerController, :sitemap
+    get "/sitemap/static", CrawlerController, :sitemap_static
+    get "/sitemap/posts/:page", CrawlerController, :sitemap_posts
+    get "/sitemap/profiles/:page", CrawlerController, :sitemap_profiles
     get "/post/:id", CrawlerController, :post
     get "/@:handle", CrawlerController, :profile
     get "/legal/:slug", CrawlerController, :legal
