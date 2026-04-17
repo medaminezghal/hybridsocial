@@ -2300,6 +2300,15 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
         "#{display_handle}@#{domain}"
       end
 
+    # The User row only exists for local accounts — remote identities
+    # federate in with no password/email, so email and two_factor_enabled
+    # surface as nil there.
+    user =
+      case identity.user do
+        %Hybridsocial.Accounts.User{} = u -> u
+        _ -> nil
+      end
+
     %{
       id: identity.id,
       handle: display_handle,
@@ -2319,6 +2328,8 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
       is_bot: identity.is_bot,
       force_bot: Map.get(identity, :force_bot, false),
       trust_level: identity.trust_level,
+      email: user && user.email,
+      two_factor_enabled: (user && user.otp_enabled) || false,
       created_at: identity.inserted_at
     }
   end
@@ -3136,6 +3147,65 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
                 })
             end
         end
+      end
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  def disable_user_2fa(conn, %{"id" => id}) do
+    with :ok <- require_permission(conn, "users.manage") do
+      case Accounts.get_identity(id) do
+        nil ->
+          conn |> put_status(:not_found) |> json(%{error: "account.not_found"})
+
+        _identity ->
+          case Accounts.admin_disable_2fa(id) do
+            {:ok, _user} ->
+              admin_id = conn.assigns.current_identity.id
+              Moderation.log(admin_id, "account.2fa_disabled", "identity", id, %{})
+              json(conn, %{status: "ok"})
+
+            {:error, :not_found} ->
+              conn |> put_status(:not_found) |> json(%{error: "account.user_not_found"})
+
+            {:error, _} ->
+              conn
+              |> put_status(:unprocessable_entity)
+              |> json(%{error: "account.2fa_disable_failed"})
+          end
+      end
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  def send_user_password_reset_email(conn, %{"id" => id}) do
+    with :ok <- require_permission(conn, "users.manage") do
+      case Accounts.get_identity(id) do
+        nil ->
+          conn |> put_status(:not_found) |> json(%{error: "account.not_found"})
+
+        _identity ->
+          case Accounts.admin_send_password_reset_email(id) do
+            {:ok, :sent} ->
+              admin_id = conn.assigns.current_identity.id
+
+              Moderation.log(
+                admin_id,
+                "account.password_reset_email_sent",
+                "identity",
+                id,
+                %{}
+              )
+
+              json(conn, %{status: "ok"})
+
+            {:error, :not_found} ->
+              conn
+              |> put_status(:not_found)
+              |> json(%{error: "account.email_not_on_file"})
+          end
       end
     else
       {:error, perm} -> deny(conn, perm)

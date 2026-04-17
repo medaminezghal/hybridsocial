@@ -58,6 +58,22 @@ export function warnUser(id: string, message: string): Promise<void> {
   return api.post(`/api/v1/admin/users/${id}/warn`, { message });
 }
 
+export function resetUserPassword(id: string): Promise<{ password: string }> {
+  return api.post(`/api/v1/admin/users/${id}/reset_password`);
+}
+
+export function sendUserPasswordResetEmail(id: string): Promise<{ status: string }> {
+  return api.post(`/api/v1/admin/users/${id}/send_password_reset_email`);
+}
+
+export function disableUserTwoFactor(id: string): Promise<{ status: string }> {
+  return api.delete(`/api/v1/admin/users/${id}/otp`);
+}
+
+export function changeUserEmail(id: string, email: string): Promise<{ status: string; email: string }> {
+  return api.put(`/api/v1/admin/users/${id}/email`, { email });
+}
+
 // Reports
 export function getReports(params?: Record<string, string>): Promise<PaginatedResponse<AdminReport>> {
   return api.get('/api/v1/admin/reports', params);

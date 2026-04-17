@@ -379,11 +379,13 @@ export interface NotificationPreferences {
 export interface AdminUser {
   id: string;
   handle: string;
-  email: string;
+  email: string | null;
   display_name: string | null;
   is_admin: boolean;
   is_bot: boolean;
   is_locked: boolean;
+  is_local: boolean;
+  domain: string | null;
   status: 'active' | 'suspended' | 'pending';
   silenced: boolean;
   shadow_banned: boolean;

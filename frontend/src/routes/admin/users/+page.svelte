@@ -7,7 +7,8 @@
     getAdminUsers, suspendUser, unsuspendUser, warnUser,
     silenceUser, unsilenceUser, shadowBanUser, unshadowBanUser,
     forceSensitiveUser, unforceSensitiveUser, revokeAllSessions,
-    setTrustLevel, getModerationNotes, createModerationNote, deleteModerationNote
+    setTrustLevel, getModerationNotes, createModerationNote, deleteModerationNote,
+    resetUserPassword, sendUserPasswordResetEmail, disableUserTwoFactor, changeUserEmail
   } from '$lib/api/admin.js';
   import type { AdminUser, ModerationNote } from '$lib/api/types.js';
 
@@ -42,6 +43,19 @@
   let notes: ModerationNote[] = $state([]);
   let notesLoading = $state(false);
   let newNote = $state('');
+
+  // Change email modal
+  let emailModalOpen = $state(false);
+  let emailTarget: AdminUser | null = $state(null);
+  let emailValue = $state('');
+  let emailSubmitting = $state(false);
+
+  // Reset password result modal — shows the generated password once.
+  // Admins must copy it before closing; we don't persist plaintext.
+  let passwordModalOpen = $state(false);
+  let passwordTarget: AdminUser | null = $state(null);
+  let generatedPassword = $state('');
+  let passwordSubmitting = $state(false);
 
   // Actions dropdown
   let openDropdownId: string | null = $state(null);
@@ -196,6 +210,77 @@
       addToast(`Failed to ${actionType.replace(/_/g, ' ')} user`, 'error');
     } finally {
       actionSubmitting = false;
+    }
+  }
+
+  function openEmailModal(user: AdminUser) {
+    emailTarget = user;
+    emailValue = user.email || '';
+    emailModalOpen = true;
+    openDropdownId = null;
+  }
+
+  async function handleChangeEmail() {
+    if (!emailTarget || !emailValue.trim()) return;
+    emailSubmitting = true;
+    try {
+      const res = await changeUserEmail(emailTarget.id, emailValue.trim());
+      users = users.map((u) => (u.id === emailTarget!.id ? { ...u, email: res.email } : u));
+      addToast(`Email updated for @${emailTarget.handle}`, 'success');
+      emailModalOpen = false;
+    } catch {
+      addToast('Failed to change email', 'error');
+    } finally {
+      emailSubmitting = false;
+    }
+  }
+
+  async function handleResetPassword(user: AdminUser) {
+    openDropdownId = null;
+    if (!confirm(`Generate a new password for @${user.handle}? All their sessions will be revoked.`)) return;
+    passwordTarget = user;
+    passwordSubmitting = true;
+    passwordModalOpen = true;
+    generatedPassword = '';
+    try {
+      const res = await resetUserPassword(user.id);
+      generatedPassword = res.password;
+    } catch {
+      addToast('Failed to reset password', 'error');
+      passwordModalOpen = false;
+    } finally {
+      passwordSubmitting = false;
+    }
+  }
+
+  async function handleSendPasswordResetEmail(user: AdminUser) {
+    openDropdownId = null;
+    try {
+      await sendUserPasswordResetEmail(user.id);
+      addToast(`Password reset email sent to @${user.handle}`, 'success');
+    } catch {
+      addToast('Failed to send password reset email', 'error');
+    }
+  }
+
+  async function handleDisableTwoFactor(user: AdminUser) {
+    openDropdownId = null;
+    if (!confirm(`Disable two-factor authentication for @${user.handle}? They'll need to set it up again.`)) return;
+    try {
+      await disableUserTwoFactor(user.id);
+      users = users.map((u) => (u.id === user.id ? { ...u, two_factor_enabled: false } : u));
+      addToast(`2FA disabled for @${user.handle}`, 'success');
+    } catch {
+      addToast('Failed to disable 2FA', 'error');
+    }
+  }
+
+  async function copyGeneratedPassword() {
+    try {
+      await navigator.clipboard.writeText(generatedPassword);
+      addToast('Password copied to clipboard', 'success');
+    } catch {
+      addToast('Could not copy — select and copy manually', 'error');
     }
   }
 
@@ -457,6 +542,23 @@
                 <button class="dropdown-item" type="button" onclick={() => openTrustModal(row as unknown as AdminUser)}>
                   Set Trust Level
                 </button>
+                {#if row['is_local']}
+                  <hr class="dropdown-divider" />
+                  <button class="dropdown-item" type="button" onclick={() => openEmailModal(row as unknown as AdminUser)}>
+                    Change Email
+                  </button>
+                  <button class="dropdown-item" type="button" onclick={() => handleResetPassword(row as unknown as AdminUser)}>
+                    Reset Password
+                  </button>
+                  <button class="dropdown-item" type="button" onclick={() => handleSendPasswordResetEmail(row as unknown as AdminUser)}>
+                    Send Password Reset Email
+                  </button>
+                  {#if row['two_factor_enabled']}
+                    <button class="dropdown-item" type="button" onclick={() => handleDisableTwoFactor(row as unknown as AdminUser)}>
+                      Disable 2FA
+                    </button>
+                  {/if}
+                {/if}
                 <hr class="dropdown-divider" />
                 <button class="dropdown-item" type="button" onclick={() => openNotesModal(row as unknown as AdminUser)}>
                   Moderation Notes
@@ -542,6 +644,56 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" type="button" onclick={() => (trustModalOpen = false)}>Cancel</button>
       <button class="btn btn-primary" type="button" onclick={handleSetTrustLevel}>Set Level</button>
+    </div>
+  {/if}
+</Modal>
+
+<!-- Change Email Modal -->
+<Modal bind:open={emailModalOpen} title="Change Email">
+  {#if emailTarget}
+    <p class="modal-text">Set a new email for <strong>@{emailTarget.handle}</strong>.</p>
+    <div class="form-group">
+      <label class="form-label" for="new-email">Email</label>
+      <input
+        id="new-email"
+        class="input"
+        type="email"
+        bind:value={emailValue}
+        placeholder="user@example.com"
+        autocomplete="off"
+      />
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" type="button" onclick={() => (emailModalOpen = false)}>Cancel</button>
+      <button
+        class="btn btn-primary"
+        type="button"
+        disabled={emailSubmitting || !emailValue.trim() || emailValue.trim() === emailTarget.email}
+        onclick={handleChangeEmail}
+      >
+        {emailSubmitting ? 'Saving...' : 'Save'}
+      </button>
+    </div>
+  {/if}
+</Modal>
+
+<!-- Reset Password Result Modal -->
+<Modal bind:open={passwordModalOpen} title="New Password Generated">
+  {#if passwordTarget}
+    {#if passwordSubmitting}
+      <p class="modal-text">Generating new password for <strong>@{passwordTarget.handle}</strong>…</p>
+    {:else if generatedPassword}
+      <p class="modal-text">
+        New password for <strong>@{passwordTarget.handle}</strong>.
+        Copy it now — it won't be shown again. All their sessions have been revoked.
+      </p>
+      <div class="password-display">
+        <code class="password-code">{generatedPassword}</code>
+        <button class="btn btn-sm btn-outline" type="button" onclick={copyGeneratedPassword}>Copy</button>
+      </div>
+    {/if}
+    <div class="modal-actions">
+      <button class="btn btn-primary" type="button" onclick={() => (passwordModalOpen = false)}>Done</button>
     </div>
   {/if}
 </Modal>
@@ -751,6 +903,27 @@
     justify-content: flex-end;
     gap: var(--space-2);
     margin-block-start: var(--space-4);
+  }
+
+  .password-display {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    margin-block: var(--space-3);
+  }
+
+  .password-code {
+    flex: 1;
+    font-family: var(--font-mono, monospace);
+    font-size: var(--text-base);
+    font-weight: 600;
+    color: var(--color-text);
+    word-break: break-all;
+    user-select: all;
   }
 
   .notes-add-form {

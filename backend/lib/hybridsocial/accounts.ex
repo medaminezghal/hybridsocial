@@ -622,6 +622,7 @@ defmodule Hybridsocial.Accounts do
     |> filter_by_local(opts[:local])
     |> order_by([i], desc: i.inserted_at)
     |> Repo.all()
+    |> Repo.preload(:user)
   end
 
   defp filter_by_type(query, nil), do: query
@@ -767,6 +768,35 @@ defmodule Hybridsocial.Accounts do
         else
           _ -> {:error, :invalid_code}
         end
+    end
+  end
+
+  @doc """
+  Admin-only: clears TOTP + recovery codes without requiring a
+  current code. Used when a user is locked out and has asked staff
+  to remove 2FA so they can log in again.
+  """
+  def admin_disable_2fa(identity_id) do
+    case get_user(identity_id) do
+      nil -> {:error, :not_found}
+      user -> user |> User.otp_disable_changeset() |> Repo.update()
+    end
+  end
+
+  @doc """
+  Admin-only: triggers the normal password-reset email flow for a
+  local user identified by identity_id (rather than email). Returns
+  `{:ok, :sent}` on success or `{:error, :not_found}` if the user
+  has no email on file.
+  """
+  def admin_send_password_reset_email(identity_id) do
+    case get_user_by_identity(identity_id) do
+      %User{email: email} when is_binary(email) and email != "" ->
+        request_password_reset(email)
+        {:ok, :sent}
+
+      _ ->
+        {:error, :not_found}
     end
   end
 
