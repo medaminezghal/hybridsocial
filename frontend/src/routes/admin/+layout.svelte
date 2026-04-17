@@ -4,13 +4,17 @@
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
   import { authStore, currentUser, isStaff, initAuth } from '$lib/stores/auth.js';
-  import { addToast } from '$lib/stores/toast.js';
   import AdminSidebar from '$lib/components/admin/AdminSidebar.svelte';
   import Toast from '$lib/components/ui/Toast.svelte';
 
   let { children } = $props();
   let authorized = $state(false);
   let checking = $state(true);
+  let user = $derived($currentUser);
+  // Admin sessions are high-value — the backend enforces the same rule,
+  // but gating the UI up-front avoids rendering a panel whose every
+  // request would 403 with admin.otp_required.
+  let needsOtp = $derived(!!user && !user.two_factor_enabled);
 
   onMount(async () => {
     // Ensure auth is fully initialized (handles page refresh with cookie-based session)
@@ -51,7 +55,32 @@
   <div class="admin-layout">
     <AdminSidebar />
     <main class="admin-content">
-      {@render children()}
+      {#if needsOtp}
+        <div class="otp-gate" role="alert">
+          <div class="otp-gate-card">
+            <div class="otp-gate-icon" aria-hidden="true">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </div>
+            <h2 class="otp-gate-title">Enable two-factor authentication</h2>
+            <p class="otp-gate-text">
+              Admin accounts must have 2FA enabled before they can access
+              the admin panel. This protects the instance from a
+              compromised staff password.
+            </p>
+            <a class="otp-gate-btn" href="/settings/security">
+              Set up two-factor authentication
+            </a>
+            <p class="otp-gate-hint">
+              You'll be brought back here after you finish setup.
+            </p>
+          </div>
+        </div>
+      {:else}
+        {@render children()}
+      {/if}
     </main>
   </div>
   <Toast />
@@ -99,5 +128,67 @@
     .admin-content {
       padding: var(--space-4);
     }
+  }
+
+  .otp-gate {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - var(--space-12));
+    padding: var(--space-4);
+  }
+
+  .otp-gate-card {
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-8);
+    max-width: 440px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  }
+
+  .otp-gate-icon {
+    margin-block-end: var(--space-4);
+    display: flex;
+    justify-content: center;
+  }
+
+  .otp-gate-title {
+    font-size: var(--text-xl);
+    font-weight: 700;
+    color: var(--color-text);
+    margin-block-end: var(--space-3);
+  }
+
+  .otp-gate-text {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    line-height: 1.6;
+    margin-block-end: var(--space-6);
+  }
+
+  .otp-gate-btn {
+    display: inline-block;
+    padding: var(--space-3) var(--space-6);
+    background: var(--color-primary);
+    color: var(--color-text-on-primary);
+    border-radius: var(--radius-lg);
+    font-size: var(--text-base);
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.15s ease;
+  }
+
+  .otp-gate-btn:hover {
+    background: var(--color-primary-hover);
+    text-decoration: none;
+  }
+
+  .otp-gate-hint {
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+    margin-block-start: var(--space-4);
   }
 </style>

@@ -1,13 +1,22 @@
 defmodule HybridsocialWeb.Plugs.RequireAdmin do
   @moduledoc """
-  Plug that checks if the current user has any staff role.
-  Kept for backwards compatibility — the admin pipeline uses this
-  to gate access to the admin panel. Per-action permission checks
-  are handled by RequirePermission or inline checks.
+  Plug that gates admin endpoints on two things:
+
+    1. The caller is staff (has at least one active role). Being
+       the first account with `is_admin = true` is not enough on
+       its own — a role row in `identity_roles` is what actually
+       grants access.
+    2. The caller has 2FA enabled on their account. Admin sessions
+       are high-value and every staff account is required to harden
+       with TOTP before the panel will serve them data.
+
+  Per-action permission checks are handled elsewhere by
+  RequirePermission or inline checks.
   """
   import Plug.Conn
   import Phoenix.Controller, only: [json: 2]
 
+  alias Hybridsocial.Accounts
   alias Hybridsocial.Auth.RBAC
 
   def init(opts), do: opts
@@ -15,20 +24,37 @@ defmodule HybridsocialWeb.Plugs.RequireAdmin do
   def call(conn, _opts) do
     case conn.assigns[:current_identity] do
       %{id: identity_id} ->
-        if RBAC.staff?(identity_id) do
-          conn
-        else
-          conn
-          |> put_status(:forbidden)
-          |> json(%{error: "auth.forbidden", message: "Admin access required"})
-          |> halt()
+        cond do
+          not RBAC.staff?(identity_id) ->
+            deny(conn, "auth.forbidden", "Admin access required")
+
+          not otp_enabled?(identity_id) ->
+            deny(
+              conn,
+              "admin.otp_required",
+              "Two-factor authentication must be enabled to use the admin panel."
+            )
+
+          true ->
+            conn
         end
 
       _ ->
-        conn
-        |> put_status(:forbidden)
-        |> json(%{error: "auth.forbidden", message: "Admin access required"})
-        |> halt()
+        deny(conn, "auth.forbidden", "Admin access required")
     end
+  end
+
+  defp otp_enabled?(identity_id) do
+    case Accounts.get_user_by_identity(identity_id) do
+      %{otp_enabled: true} -> true
+      _ -> false
+    end
+  end
+
+  defp deny(conn, error, message) do
+    conn
+    |> put_status(:forbidden)
+    |> json(%{error: error, message: message})
+    |> halt()
   end
 end
