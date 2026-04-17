@@ -1242,7 +1242,7 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
     with :ok <- require_permission(conn, "federation.view") do
       local_host = URI.parse(HybridsocialWeb.Endpoint.url()).host
 
-      instances =
+      rows =
         Hybridsocial.Accounts.Identity
         |> where([i], not is_nil(i.ap_actor_url) and is_nil(i.deleted_at))
         |> select([i], %{
@@ -1254,17 +1254,43 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
         |> order_by([i], desc: max(i.updated_at))
         |> Hybridsocial.Repo.all()
         |> Enum.reject(fn i -> i.domain == local_host end)
-        |> Enum.map(fn i ->
-          # Check if there's a policy for this domain
-          policy =
-            Hybridsocial.Repo.get_by(Hybridsocial.Federation.InstancePolicy, domain: i.domain)
+
+      domains = Enum.map(rows, & &1.domain)
+
+      remote_instances =
+        from(r in Hybridsocial.Federation.RemoteInstance, where: r.domain in ^domains)
+        |> Hybridsocial.Repo.all()
+        |> Map.new(&{&1.domain, &1})
+
+      policies =
+        from(p in Hybridsocial.Federation.InstancePolicy, where: p.domain in ^domains)
+        |> Hybridsocial.Repo.all()
+        |> Map.new(&{&1.domain, &1})
+
+      instances =
+        Enum.map(rows, fn row ->
+          policy = Map.get(policies, row.domain)
+          ri = Map.get(remote_instances, row.domain)
+
+          # No NodeInfo cached for this peer yet — the DM routing
+          # path seeds it lazily, but domains we only receive public
+          # posts from may never have been probed. Kick off a
+          # background fetch so the next page load shows the real
+          # software; we don't block the response.
+          if is_nil(ri) do
+            Task.Supervisor.start_child(
+              Hybridsocial.TaskSupervisor,
+              fn -> Hybridsocial.Federation.NodeInfo.software_for(row.domain) end
+            )
+          end
 
           %{
-            domain: i.domain,
-            user_count: i.user_count,
-            last_activity_at: i.last_activity_at,
+            domain: row.domain,
+            user_count: row.user_count,
+            last_activity_at: row.last_activity_at,
             status: if(policy, do: policy.policy, else: "none"),
-            software: nil
+            software: ri && ri.software,
+            software_version: ri && ri.version
           }
         end)
 
