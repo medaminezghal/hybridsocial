@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { addToast } from '$lib/stores/toast.js';
-  import { getAdminTheme, saveAdminTheme, uploadLogo, uploadFavicon } from '$lib/api/admin.js';
+  import { getAdminTheme, saveAdminTheme, uploadLogo, uploadFavicon, uploadOgImage } from '$lib/api/admin.js';
   import type { AdminThemeConfig } from '$lib/api/types.js';
 
   const defaults: AdminThemeConfig = {
@@ -30,7 +30,8 @@
     instance_name: '',
     instance_description: '',
     logo_url: null,
-    favicon_url: null
+    favicon_url: null,
+    og_image_url: null
   };
 
   let theme: AdminThemeConfig = $state({ ...defaults });
@@ -252,6 +253,20 @@
     }
   }
 
+  async function handleOgImageUpload(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const result = await uploadOgImage(file);
+      theme.og_image_url = result.url;
+      theme = { ...theme };
+      addToast('Social share image uploaded', 'success');
+    } catch {
+      addToast('Failed to upload social share image', 'error');
+    }
+  }
+
   let radiusValue = $derived(
     theme.border_radius === 'sharp' ? 0 : theme.border_radius === 'pill' ? 2 : 1
   );
@@ -438,6 +453,19 @@
                 <img src={theme.favicon_url} alt="Favicon" class="upload-preview upload-favicon" />
               {/if}
               <input type="file" accept="image/*" onchange={handleFaviconUpload} class="file-input" />
+            </div>
+          </div>
+          <div class="branding-field">
+            <label class="color-label">Social share image (OG)</label>
+            <p class="branding-hint">
+              Used when posts and instance pages are linked on other sites
+              (Twitter, Slack, Discord, Mastodon cards). Recommended: 1200×630.
+            </p>
+            <div class="upload-row">
+              {#if theme.og_image_url}
+                <img src={theme.og_image_url} alt="Social share" class="upload-preview upload-og" />
+              {/if}
+              <input type="file" accept="image/*" onchange={handleOgImageUpload} class="file-input" />
             </div>
           </div>
         </div>
@@ -698,6 +726,18 @@
   .upload-favicon {
     width: 32px;
     height: 32px;
+  }
+
+  .upload-og {
+    width: 120px;
+    height: 63px;
+  }
+
+  .branding-hint {
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+    margin-block: 4px 8px;
+    line-height: 1.4;
   }
 
   .file-input {

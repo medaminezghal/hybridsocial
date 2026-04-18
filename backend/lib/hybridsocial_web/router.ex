@@ -624,6 +624,7 @@ defmodule HybridsocialWeb.Router do
     put "/theme", AdminController, :update_theme
     post "/theme/logo", AdminController, :upload_logo
     post "/theme/favicon", AdminController, :upload_favicon
+    post "/theme/og_image", AdminController, :upload_og_image
 
     # Instance Rules
     get "/rules", AdminController, :list_rules

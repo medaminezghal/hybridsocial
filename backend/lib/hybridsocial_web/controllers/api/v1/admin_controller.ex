@@ -481,6 +481,10 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
         end)
         |> Map.put("instance_name", Hybridsocial.Config.get("instance_name", "HybridSocial"))
         |> Map.put("instance_description", Hybridsocial.Config.get("instance_description", ""))
+        # Social-card image used by /og tags on crawler requests.
+        # Predates the theme_* prefix, so we keep the old key name
+        # (`instance_og_image`) and just expose it here.
+        |> Map.put("og_image_url", Hybridsocial.Config.get("instance_og_image"))
 
       json(conn, theme)
     else
@@ -494,12 +498,16 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
         Hybridsocial.Config.set("theme_#{key}", params[key])
       end
 
-      # instance_name and instance_description are top-level settings
+      # instance_name, instance_description, and the OG image live
+      # outside the theme_ prefix.
       if params["instance_name"],
         do: Hybridsocial.Config.set("instance_name", params["instance_name"])
 
       if params["instance_description"],
         do: Hybridsocial.Config.set("instance_description", params["instance_description"])
+
+      if Map.has_key?(params, "og_image_url"),
+        do: Hybridsocial.Config.set("instance_og_image", params["og_image_url"])
 
       get_theme(conn, %{})
     else
@@ -547,6 +555,27 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
   end
 
   def upload_favicon(conn, _),
+    do: conn |> put_status(:bad_request) |> json(%{error: "file_required"})
+
+  def upload_og_image(conn, %{"file" => %Plug.Upload{} = upload}) do
+    with :ok <- require_permission(conn, "theme.manage") do
+      case Hybridsocial.Media.upload(conn.assigns.current_identity.id, upload, nil) do
+        {:ok, media} ->
+          url = Hybridsocial.Media.media_url(media)
+          Hybridsocial.Config.set("instance_og_image", url)
+          json(conn, %{url: url})
+
+        {:error, reason} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "upload.failed", details: inspect(reason)})
+      end
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  def upload_og_image(conn, _),
     do: conn |> put_status(:bad_request) |> json(%{error: "file_required"})
 
   # ── Instance Settings ────────────────────────────────────────────────

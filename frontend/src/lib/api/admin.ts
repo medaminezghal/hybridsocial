@@ -184,6 +184,10 @@ export function uploadLogo(file: File): Promise<{ url: string }> {
   return api.upload('/api/v1/admin/theme/logo', file);
 }
 
+export function uploadOgImage(file: File): Promise<{ url: string }> {
+  return api.upload('/api/v1/admin/theme/og_image', file);
+}
+
 export function uploadFavicon(file: File): Promise<{ url: string }> {
   return api.upload('/api/v1/admin/theme/favicon', file);
 }

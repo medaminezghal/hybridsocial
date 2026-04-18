@@ -216,8 +216,7 @@
 
           {#if os.status === 'not_configured'}
             <div class="service-detail">
-              Search is running on PostgreSQL. Switch to OpenSearch in
-              <a href="/admin/settings">Settings</a> if you want a dedicated search cluster.
+              Search is running on PostgreSQL. Set the <code>search_backend</code> config key to <code>opensearch</code> to switch to a dedicated cluster.
             </div>
           {:else if os.version}
             <div class="service-detail">v{os.version}</div>
@@ -289,8 +288,7 @@
         <a href="/admin/users" class="quick-action-btn btn btn-outline">Manage Users</a>
         <a href="/admin/moderation" class="quick-action-btn btn btn-outline">Review Reports</a>
         <a href="/admin/federation" class="quick-action-btn btn btn-outline">Federation Status</a>
-        <a href="/admin/settings" class="quick-action-btn btn btn-outline">Instance Settings</a>
-        <a href="/admin/theme" class="quick-action-btn btn btn-outline">Customize Theme</a>
+        <a href="/admin/theme" class="quick-action-btn btn btn-outline">Theme & Branding</a>
         <a href="/admin/announcements" class="quick-action-btn btn btn-outline">Announcements</a>
       </div>
     </section>

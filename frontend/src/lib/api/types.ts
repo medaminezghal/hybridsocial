@@ -687,4 +687,5 @@ export interface AdminThemeConfig {
   instance_description: string;
   logo_url: string | null;
   favicon_url: string | null;
+  og_image_url: string | null;
 }
