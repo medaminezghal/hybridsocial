@@ -57,6 +57,13 @@ defmodule Hybridsocial.Social.Post do
     |> cast(attrs, [
       :id,
       :content,
+      # Posts.create_post pre-renders content_html at the author's
+      # tier-gated markdown level (free → plaintext, verified_pro →
+      # full GFM with tables). If we don't cast this field, the
+      # pre-rendered value never enters the changeset; the fallback
+      # in generate_content_html/1 re-renders at the default
+      # :basic level, silently stripping tables, headings, images.
+      :content_html,
       :post_type,
       :visibility,
       :sensitive,
@@ -92,7 +99,7 @@ defmodule Hybridsocial.Social.Post do
     char_limit = Keyword.get(opts, :char_limit, 5000)
 
     post
-    |> cast(attrs, [:content, :spoiler_text, :sensitive, :language])
+    |> cast(attrs, [:content, :content_html, :spoiler_text, :sensitive, :language])
     |> validate_edit_window(post)
     |> validate_content_for_type()
     |> validate_length(:content, max: char_limit)
