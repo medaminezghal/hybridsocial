@@ -309,11 +309,27 @@ export interface ThemeConfig {
   color_primary?: string;
   color_primary_hover?: string;
   color_primary_soft?: string;
+  color_primary_contrast?: string;
   color_secondary?: string;
   color_accent?: string;
+  color_success?: string;
+  color_warning?: string;
+  color_danger?: string;
+  color_info?: string;
+  color_bg?: string;
+  color_surface?: string;
+  color_border?: string;
+  color_text?: string;
+  color_text_secondary?: string;
+  color_text_link?: string;
   gradient_start?: string;
   gradient_end?: string;
   gradient_direction?: string;
+  border_radius?: 'sharp' | 'rounded' | 'pill';
+  density?: 'compact' | 'comfortable' | 'spacious';
+  font_family?: string;
+  logo_url?: string;
+  favicon_url?: string;
 }
 
 export interface TrendingTag {

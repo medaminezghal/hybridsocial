@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { addToast } from '$lib/stores/toast.js';
   import { getAdminTheme, saveAdminTheme, uploadLogo, uploadFavicon, uploadOgImage } from '$lib/api/admin.js';
+  import { applyTheme } from '$lib/stores/theme.js';
   import type { AdminThemeConfig } from '$lib/api/types.js';
 
   const defaults: AdminThemeConfig = {
@@ -182,6 +183,10 @@
     saving = true;
     try {
       await saveAdminTheme(theme);
+      // Push the new values into the live CSS vars so the admin
+      // sees the change instantly — previously a full page reload
+      // was required to pick up the saved theme.
+      applyTheme(theme as unknown as import('$lib/api/types.js').ThemeConfig);
       addToast('Theme saved successfully', 'success');
     } catch {
       addToast('Failed to save theme', 'error');

@@ -141,8 +141,30 @@ defmodule Hybridsocial.Instance do
         fdroid: Config.get("app_fdroid_url", ""),
         banner_enabled: Config.get("app_banner_enabled", false)
       },
-      analytics: analytics_config()
+      analytics: analytics_config(),
+      theme: theme_config()
     }
+  end
+
+  # Public theme payload consumed by the frontend's applyTheme/0 on
+  # boot. Only non-nil keys are emitted so the frontend keeps its
+  # baked-in defaults for anything the operator hasn't set.
+  defp theme_config do
+    keys = ~w(
+      color_primary color_primary_hover color_primary_soft color_primary_contrast
+      color_secondary color_accent color_success color_warning color_danger color_info
+      color_bg color_surface color_border color_text color_text_secondary color_text_link
+      gradient_start gradient_end gradient_direction
+      border_radius density font_family logo_url favicon_url
+    )
+
+    keys
+    |> Enum.reduce(%{}, fn k, acc ->
+      case Config.get("theme_#{k}") do
+        v when is_binary(v) and v != "" -> Map.put(acc, k, v)
+        _ -> acc
+      end
+    end)
   end
 
   def nodeinfo do
