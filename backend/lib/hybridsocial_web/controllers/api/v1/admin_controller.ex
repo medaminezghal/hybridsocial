@@ -1800,6 +1800,8 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
             response: response
           })
 
+          send_appeal_outcome_email(appeal, response, :approved)
+
           conn |> put_status(:ok) |> json(%{data: serialize_appeal(appeal)})
 
         {:error, :not_found} ->
@@ -1827,6 +1829,8 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
             action_type: appeal.action_type,
             response: response
           })
+
+          send_appeal_outcome_email(appeal, response, :rejected)
 
           conn |> put_status(:ok) |> json(%{data: serialize_appeal(appeal)})
 
@@ -3065,6 +3069,30 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
           |> Map.from_struct()
           |> Map.put(:email, user.email)
           |> Hybridsocial.Emails.account_approved_email()
+
+        Hybridsocial.Mailer.deliver(email)
+      end
+    end)
+  end
+
+  # Appeal notifications share the same pattern as account approvals:
+  # async, fire-and-forget, skip if SMTP is unavailable. `outcome`
+  # selects the template (`:approved` or `:rejected`).
+  defp send_appeal_outcome_email(appeal, response, outcome) do
+    Task.Supervisor.start_child(Hybridsocial.TaskSupervisor, fn ->
+      with identity when not is_nil(identity) <- Accounts.get_identity(appeal.identity_id),
+           user when not is_nil(user) <- Accounts.get_user_by_identity(appeal.identity_id),
+           true <- is_binary(user.email) and user.email != "" do
+        recipient =
+          identity
+          |> Map.from_struct()
+          |> Map.put(:email, user.email)
+
+        email =
+          case outcome do
+            :approved -> Hybridsocial.Emails.appeal_approved_email(recipient, appeal, response)
+            :rejected -> Hybridsocial.Emails.appeal_rejected_email(recipient, appeal, response)
+          end
 
         Hybridsocial.Mailer.deliver(email)
       end

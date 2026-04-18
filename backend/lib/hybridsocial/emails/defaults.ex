@@ -23,6 +23,8 @@ defmodule Hybridsocial.Emails.Defaults do
   def for("notification_digest"), do: {notification_digest_subject(), notification_digest_html()}
   def for("account_approved"), do: {account_approved_subject(), account_approved_html()}
   def for("account_rejected"), do: {account_rejected_subject(), account_rejected_html()}
+  def for("appeal_approved"), do: {appeal_approved_subject(), appeal_approved_html()}
+  def for("appeal_rejected"), do: {appeal_rejected_subject(), appeal_rejected_html()}
   def for("admin_pending_account"), do: {admin_pending_account_subject(), admin_pending_account_html()}
   def for("admin_new_report"), do: {admin_new_report_subject(), admin_new_report_html()}
   def for("admin_new_appeal"), do: {admin_new_appeal_subject(), admin_new_appeal_html()}
@@ -45,6 +47,8 @@ defmodule Hybridsocial.Emails.Defaults do
 
   defp account_approved_subject, do: "{{instance_name}} — your account is approved"
   defp account_rejected_subject, do: "{{instance_name}} — your account application"
+  defp appeal_approved_subject, do: "{{instance_name}} — your appeal was approved"
+  defp appeal_rejected_subject, do: "{{instance_name}} — your appeal"
 
   defp admin_pending_account_subject,
     do: "[{{instance_name}}] New pending account: @{{applicant.handle}}"
@@ -216,6 +220,35 @@ defmodule Hybridsocial.Emails.Defaults do
 
     footer =
       "You're receiving this because you applied for an account on {{instance_name}}."
+
+    layout(content, footer)
+  end
+
+  defp appeal_approved_html do
+    content = """
+    <h1 style="margin:0 0 16px 0;font-size:22px;font-weight:700;">Good news — your appeal was approved</h1>
+    <p style="margin:0 0 12px 0;">Hi @{{user.handle}}, we reviewed your appeal against the <strong>{{appeal.action_type}}</strong> action and decided to reverse it.</p>
+    <p style="margin:0 0 12px 0;"><strong>Moderator's note:</strong> {{response}}</p>
+    #{button("Back to {{instance_name}}", "{{app_url}}")}
+    <p style="margin:0;font-size:13px;color:#6b7280;">Thanks for your patience.</p>
+    """
+
+    footer =
+      "You're receiving this because you filed an appeal on {{instance_name}}."
+
+    layout(content, footer)
+  end
+
+  defp appeal_rejected_html do
+    content = """
+    <h1 style="margin:0 0 16px 0;font-size:20px;font-weight:700;">Your appeal was reviewed</h1>
+    <p style="margin:0 0 12px 0;">Hi @{{user.handle}}, we reviewed your appeal against the <strong>{{appeal.action_type}}</strong> action but decided to keep it in place.</p>
+    <p style="margin:0 0 12px 0;"><strong>Moderator's note:</strong> {{response}}</p>
+    <p style="margin:0;">If you'd like to discuss this further, reach out at <a href="mailto:{{contact_email}}" style="color:#6366f1;">{{contact_email}}</a>.</p>
+    """
+
+    footer =
+      "You're receiving this because you filed an appeal on {{instance_name}}."
 
     layout(content, footer)
   end

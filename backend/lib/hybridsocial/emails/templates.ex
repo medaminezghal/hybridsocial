@@ -106,6 +106,46 @@ defmodule Hybridsocial.Emails.Templates do
       }
     },
     %{
+      key: "appeal_approved",
+      name: "Appeal approved",
+      description: "Sent when an admin approves a user's appeal and reverses the action.",
+      variables: %{
+        "instance_name" => "Instance display name",
+        "user.display_name" => "Recipient's display name",
+        "user.handle" => "Recipient's handle",
+        "appeal.action_type" => "The action that was reversed (suspend, silence, warn…)",
+        "response" => "Admin's free-text reply (may be empty)",
+        "app_url" => "Absolute URL back to the app"
+      },
+      sample: %{
+        "instance_name" => "HybridSocial",
+        "user" => %{"display_name" => "Sample User", "handle" => "sample"},
+        "appeal" => %{"action_type" => "suspend"},
+        "response" => "You're right — the flag was from a misconfigured filter. We've removed the suspension.",
+        "app_url" => "https://example.com"
+      }
+    },
+    %{
+      key: "appeal_rejected",
+      name: "Appeal rejected",
+      description: "Sent when an admin rejects a user's appeal and the action stays in place.",
+      variables: %{
+        "instance_name" => "Instance display name",
+        "user.display_name" => "Recipient's display name",
+        "user.handle" => "Recipient's handle",
+        "appeal.action_type" => "The action that stays in place",
+        "response" => "Admin's free-text reply (may be empty)",
+        "contact_email" => "Instance contact email"
+      },
+      sample: %{
+        "instance_name" => "HybridSocial",
+        "user" => %{"display_name" => "Sample User", "handle" => "sample"},
+        "appeal" => %{"action_type" => "suspend"},
+        "response" => "The behavior you've described still violates our rules.",
+        "contact_email" => "admin@example.com"
+      }
+    },
+    %{
       key: "account_rejected",
       name: "Account rejected",
       description: "Sent when an admin rejects a pending account. Optional — leave disabled if you'd rather not notify.",

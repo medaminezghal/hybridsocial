@@ -103,6 +103,32 @@ defmodule Hybridsocial.Emails do
     render("account_rejected", user, assigns)
   end
 
+  @doc "Sent to the appellant when their appeal is approved."
+  def appeal_approved_email(user, appeal, response) do
+    assigns = %{
+      "instance_name" => instance_name(),
+      "user" => user_assigns(user),
+      "appeal" => %{"action_type" => to_string(appeal.action_type || "")},
+      "response" => (is_binary(response) && response != "" && response) || "No note left.",
+      "app_url" => base_url()
+    }
+
+    render("appeal_approved", user, assigns)
+  end
+
+  @doc "Sent to the appellant when their appeal is rejected."
+  def appeal_rejected_email(user, appeal, response) do
+    assigns = %{
+      "instance_name" => instance_name(),
+      "user" => user_assigns(user),
+      "appeal" => %{"action_type" => to_string(appeal.action_type || "")},
+      "response" => (is_binary(response) && response != "" && response) || "No note left.",
+      "contact_email" => Hybridsocial.Config.get("contact_email", "")
+    }
+
+    render("appeal_rejected", user, assigns)
+  end
+
   @doc "Admin-facing: new pending account awaiting approval."
   def admin_pending_account_email(to_email, staff_identity, applicant_identity, applicant_user) do
     assigns = %{

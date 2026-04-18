@@ -82,11 +82,14 @@ defmodule Hybridsocial.Notifications.StaffEmail do
                Accounts.get_user_by_identity(identity_id) do
           try do
             build_email.(email, identity) |> Mailer.deliver()
+            audit(:delivered, identity_id, notification_key, email, nil)
           rescue
             e ->
               Logger.warning(
                 "staff email #{notification_key} failed for #{identity_id}: #{Exception.message(e)}"
               )
+
+              audit(:failed, identity_id, notification_key, nil, Exception.message(e))
           end
         end
 
@@ -94,4 +97,20 @@ defmodule Hybridsocial.Notifications.StaffEmail do
         :ok
     end
   end
+
+  # Leave a paper trail: staff fan-out is mostly invisible to admins,
+  # but an auditor (or a staff member wondering "why did I get that
+  # email?") should be able to reconstruct it. One row per recipient
+  # per notification event.
+  defp audit(outcome, identity_id, notification_key, email, error) do
+    details =
+      %{notification_key: notification_key, outcome: to_string(outcome)}
+      |> maybe_put(:email, email)
+      |> maybe_put(:error, error)
+
+    Hybridsocial.Moderation.log(nil, "email.staff_notified", "identity", identity_id, details)
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end
