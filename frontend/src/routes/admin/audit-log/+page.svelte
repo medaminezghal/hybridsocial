@@ -312,6 +312,18 @@
     cursor: pointer;
   }
 
+  /* Give audit rows more breathing room than the default DataTable
+     padding — five columns of technical content is dense, and
+     clickable rows benefit from a larger hit target. */
+  .audit-page :global(.data-table td) {
+    padding: var(--space-5) var(--space-4);
+    line-height: 1.5;
+  }
+
+  .audit-page :global(.data-table th) {
+    padding-block: var(--space-4);
+  }
+
   .actor-cell {
     display: flex;
     align-items: center;
