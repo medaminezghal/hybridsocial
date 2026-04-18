@@ -3018,6 +3018,7 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
         {:ok, _} ->
           admin_id = conn.assigns.current_identity.id
           Moderation.log(admin_id, "account.approved", "identity", id, %{})
+          send_approval_email(id)
           json(conn, %{status: "ok"})
 
         {:error, _} ->
@@ -3028,12 +3029,19 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
     end
   end
 
-  def reject_account(conn, %{"id" => id}) do
+  def reject_account(conn, %{"id" => id} = params) do
     with :ok <- require_permission(conn, "users.suspend") do
+      reason = params["reason"] || ""
+
+      # Fire the rejection email BEFORE soft-deleting, because
+      # reject_account/1 drops the identity and we need the email
+      # address.
+      send_rejection_email(id, reason)
+
       case Accounts.reject_account(id) do
         {:ok, _} ->
           admin_id = conn.assigns.current_identity.id
-          Moderation.log(admin_id, "account.rejected", "identity", id, %{})
+          Moderation.log(admin_id, "account.rejected", "identity", id, %{reason: reason})
           json(conn, %{status: "ok"})
 
         {:error, _} ->
@@ -3042,6 +3050,41 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
     else
       {:error, perm} -> deny(conn, perm)
     end
+  end
+
+  # Async, fire-and-forget — approval should succeed even if SMTP is
+  # down. A logged warning is enough; admins can retry manually via
+  # user detail page (Send password reset email pattern) if needed.
+  defp send_approval_email(identity_id) do
+    Task.Supervisor.start_child(Hybridsocial.TaskSupervisor, fn ->
+      with identity when not is_nil(identity) <- Accounts.get_identity(identity_id),
+           user when not is_nil(user) <- Accounts.get_user_by_identity(identity_id),
+           true <- is_binary(user.email) and user.email != "" do
+        email =
+          identity
+          |> Map.from_struct()
+          |> Map.put(:email, user.email)
+          |> Hybridsocial.Emails.account_approved_email()
+
+        Hybridsocial.Mailer.deliver(email)
+      end
+    end)
+  end
+
+  defp send_rejection_email(identity_id, reason) do
+    Task.Supervisor.start_child(Hybridsocial.TaskSupervisor, fn ->
+      with identity when not is_nil(identity) <- Accounts.get_identity(identity_id),
+           user when not is_nil(user) <- Accounts.get_user_by_identity(identity_id),
+           true <- is_binary(user.email) and user.email != "" do
+        email =
+          identity
+          |> Map.from_struct()
+          |> Map.put(:email, user.email)
+          |> Hybridsocial.Emails.account_rejected_email(reason)
+
+        Hybridsocial.Mailer.deliver(email)
+      end
+    end)
   end
 
   # --- Suggested Users Curation ---

@@ -90,6 +90,40 @@ defmodule Hybridsocial.Emails.Templates do
       }
     },
     %{
+      key: "account_approved",
+      name: "Account approved",
+      description: "Sent when an admin approves a pending account (approval registration mode).",
+      variables: %{
+        "instance_name" => "Instance display name",
+        "user.display_name" => "Recipient's display name",
+        "user.handle" => "Recipient's handle",
+        "login_url" => "Absolute URL to the login page"
+      },
+      sample: %{
+        "instance_name" => "HybridSocial",
+        "user" => %{"display_name" => "Sample User", "handle" => "sample"},
+        "login_url" => "https://example.com/login"
+      }
+    },
+    %{
+      key: "account_rejected",
+      name: "Account rejected",
+      description: "Sent when an admin rejects a pending account. Optional — leave disabled if you'd rather not notify.",
+      variables: %{
+        "instance_name" => "Instance display name",
+        "user.display_name" => "Recipient's display name",
+        "user.handle" => "Recipient's handle",
+        "reason" => "Optional admin-supplied reason (may be empty)",
+        "contact_email" => "Instance contact email for appeals"
+      },
+      sample: %{
+        "instance_name" => "HybridSocial",
+        "user" => %{"display_name" => "Sample User", "handle" => "sample"},
+        "reason" => "The handle matches a banned pattern.",
+        "contact_email" => "admin@example.com"
+      }
+    },
+    %{
       key: "notification_digest",
       name: "Notification digest",
       description: "Summarises recent in-app notifications for users who opted in.",

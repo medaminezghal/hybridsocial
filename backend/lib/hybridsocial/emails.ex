@@ -76,6 +76,33 @@ defmodule Hybridsocial.Emails do
     render("login_notification", user, assigns)
   end
 
+  @doc "Sent when an admin approves a pending account."
+  def account_approved_email(user) do
+    assigns = %{
+      "instance_name" => instance_name(),
+      "user" => user_assigns(user),
+      "login_url" => "#{base_url()}/login"
+    }
+
+    render("account_approved", user, assigns)
+  end
+
+  @doc """
+  Sent when an admin rejects a pending account. `reason` is optional
+  admin-supplied free text; it's escaped before substitution so an
+  admin can't inject HTML into the recipient's inbox.
+  """
+  def account_rejected_email(user, reason \\ "") do
+    assigns = %{
+      "instance_name" => instance_name(),
+      "user" => user_assigns(user),
+      "reason" => (is_binary(reason) && reason != "" && reason) || "No reason provided.",
+      "contact_email" => Hybridsocial.Config.get("contact_email", "")
+    }
+
+    render("account_rejected", user, assigns)
+  end
+
   @doc "Notification digest summarising recent notifications."
   def notification_digest_email(user, notifications) do
     count = length(notifications)

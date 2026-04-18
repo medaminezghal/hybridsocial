@@ -21,6 +21,8 @@ defmodule Hybridsocial.Emails.Defaults do
   def for("moderation_queue"), do: {moderation_queue_subject(), moderation_queue_html()}
   def for("login_notification"), do: {login_notification_subject(), login_notification_html()}
   def for("notification_digest"), do: {notification_digest_subject(), notification_digest_html()}
+  def for("account_approved"), do: {account_approved_subject(), account_approved_html()}
+  def for("account_rejected"), do: {account_rejected_subject(), account_rejected_html()}
   def for(_), do: {"", ""}
 
   # ── Subjects ──────────────────────────────────────────────────────
@@ -36,6 +38,9 @@ defmodule Hybridsocial.Emails.Defaults do
 
   defp notification_digest_subject,
     do: "{{instance_name}} — you have {{count}} new notifications"
+
+  defp account_approved_subject, do: "{{instance_name}} — your account is approved"
+  defp account_rejected_subject, do: "{{instance_name}} — your account application"
 
   # ── Shared layout helpers ─────────────────────────────────────────
 
@@ -166,6 +171,35 @@ defmodule Hybridsocial.Emails.Defaults do
 
     footer =
       "You're receiving this digest because you opted in under notification preferences. You can turn it off anytime."
+
+    layout(content, footer)
+  end
+
+  defp account_approved_html do
+    content = """
+    <h1 style="margin:0 0 16px 0;font-size:22px;font-weight:700;">You're in, @{{user.handle}}!</h1>
+    <p style="margin:0 0 8px 0;">An admin has approved your {{instance_name}} account. You can log in and start posting right now.</p>
+    #{button("Log in", "{{login_url}}")}
+    <p style="margin:0;font-size:13px;color:#6b7280;">Welcome aboard.</p>
+    """
+
+    footer =
+      "You're receiving this because you applied for an account on {{instance_name}}."
+
+    layout(content, footer)
+  end
+
+  defp account_rejected_html do
+    content = """
+    <h1 style="margin:0 0 16px 0;font-size:20px;font-weight:700;">Your account application</h1>
+    <p style="margin:0 0 12px 0;">Hi {{user.display_name}},</p>
+    <p style="margin:0 0 12px 0;">Thanks for your interest in {{instance_name}}. After review, we weren't able to approve your account at this time.</p>
+    <p style="margin:0 0 12px 0;"><strong>Reason:</strong> {{reason}}</p>
+    <p style="margin:0;">If you believe this was a mistake, reply to this email or contact <a href="mailto:{{contact_email}}" style="color:#6366f1;">{{contact_email}}</a>.</p>
+    """
+
+    footer =
+      "You're receiving this because you applied for an account on {{instance_name}}."
 
     layout(content, footer)
   end
