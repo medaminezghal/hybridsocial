@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { api } from '$lib/api/client.js';
-  import { uploadMedia } from '$lib/api/media.js';
+  import { uploadMedia, updateMedia } from '$lib/api/media.js';
   import { search } from '$lib/api/search.js';
   import type { Post, MediaAttachment, Identity, PostDraft } from '$lib/api/types.js';
   import { createDraft, updateDraft, getDraft, deleteDraft } from '$lib/api/drafts.js';
@@ -274,11 +274,35 @@
     setTimeout(() => textareaEl?.focus(), 50);
   }
 
+  let discardConfirmOpen = $state(false);
+
   function closeComposer() {
-    if (content.trim()) {
-      saveDraft();
+    // Ask before nuking in-progress work. Localstorage draft survives
+    // either way for text (saveDraft below), but media attachments +
+    // a poll/schedule/visibility setup aren't recoverable, so a
+    // confirm prompt before exit is the safer default.
+    const hasWork =
+      content.trim().length > 0 ||
+      uploadedMedia.length > 0 ||
+      showPoll ||
+      showSchedule ||
+      (showCW && spoilerText.trim().length > 0);
+
+    if (hasWork) {
+      discardConfirmOpen = true;
+      return;
     }
     resetComposer();
+  }
+
+  function confirmDiscard() {
+    discardConfirmOpen = false;
+    if (content.trim()) saveDraft();
+    resetComposer();
+  }
+
+  function cancelDiscard() {
+    discardConfirmOpen = false;
   }
 
   let isClosing = $state(false);
@@ -369,6 +393,38 @@
       if (failures > 0) parts.push(`${failures} upload${failures === 1 ? '' : 's'} failed`);
       if (dropped > 0) parts.push(`${dropped} skipped (max ${maxMedia})`);
       error = parts.join(' · ');
+    }
+  }
+
+  // Alt-text editor for an attached media. Backend accepts
+  // PUT /api/v1/media/:id with alt_text/description.
+  let altEditorOpen = $state(false);
+  let altEditorMedia: MediaAttachment | null = $state(null);
+  let altEditorValue = $state('');
+  let altEditorSaving = $state(false);
+
+  function openAltEditor(media: MediaAttachment) {
+    altEditorMedia = media;
+    altEditorValue = media.description || '';
+    altEditorOpen = true;
+  }
+
+  async function saveAltText() {
+    if (!altEditorMedia) return;
+    altEditorSaving = true;
+    try {
+      const trimmed = altEditorValue.trim();
+      const updated = await updateMedia(altEditorMedia.id, { description: trimmed });
+      // Reflect the new alt text in the local preview without
+      // re-fetching the list — optimistic posts use this field too.
+      uploadedMedia = uploadedMedia.map((m) =>
+        m.id === altEditorMedia!.id ? { ...m, description: updated.description ?? trimmed } : m
+      );
+      altEditorOpen = false;
+    } catch {
+      error = 'Failed to save alt text. Please try again.';
+    } finally {
+      altEditorSaving = false;
     }
   }
 
@@ -939,6 +995,16 @@
             >
               <span class="material-symbols-outlined remove-icon">close</span>
             </button>
+            <button
+              type="button"
+              class="media-preview-alt"
+              class:media-preview-alt-set={!!media.description}
+              onclick={() => openAltEditor(media)}
+              aria-label={media.description ? 'Edit alt text' : 'Add alt text for screen readers'}
+              title={media.description || 'Add alt text for screen readers'}
+            >
+              ALT
+            </button>
           </div>
         {/each}
         {#if mediaUploading}
@@ -1165,6 +1231,49 @@
             Post
           {/if}
         </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if altEditorOpen && altEditorMedia}
+  <div class="alt-overlay" role="dialog" aria-modal="true" aria-label="Edit alt text" onclick={(e) => { if (e.target === e.currentTarget) altEditorOpen = false; }}>
+    <div class="alt-dialog">
+      <h3 class="alt-title">Describe the image</h3>
+      <p class="alt-hint">
+        Alt text helps people using screen readers understand what's
+        in the image. Keep it short and specific.
+      </p>
+      <textarea
+        class="alt-textarea"
+        bind:value={altEditorValue}
+        placeholder="A person sitting at a desk, looking at a monitor that shows a social-media feed."
+        rows="4"
+        maxlength="1500"
+        autofocus
+      ></textarea>
+      <div class="alt-char-count">{altEditorValue.length} / 1500</div>
+      <div class="alt-actions">
+        <button type="button" class="btn btn-ghost" onclick={() => (altEditorOpen = false)}>Cancel</button>
+        <button type="button" class="btn btn-primary" disabled={altEditorSaving} onclick={saveAltText}>
+          {altEditorSaving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if discardConfirmOpen}
+  <div class="alt-overlay" role="dialog" aria-modal="true" aria-label="Discard draft?">
+    <div class="alt-dialog discard-dialog">
+      <h3 class="alt-title">Discard this post?</h3>
+      <p class="alt-hint">
+        You have unsaved text{uploadedMedia.length > 0 ? ' and attached media' : ''}.
+        Closing now will clear it.
+      </p>
+      <div class="alt-actions">
+        <button type="button" class="btn btn-ghost" onclick={cancelDiscard}>Keep writing</button>
+        <button type="button" class="btn btn-danger" onclick={confirmDiscard}>Discard &amp; close</button>
       </div>
     </div>
   </div>
@@ -2002,5 +2111,110 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* ALT pill on each media preview */
+  .media-preview-alt {
+    position: absolute;
+    inset-block-end: 4px;
+    inset-inline-start: 4px;
+    border: none;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    z-index: 1;
+  }
+
+  .media-preview-alt:hover {
+    background: rgba(0, 0, 0, 0.85);
+  }
+
+  .media-preview-alt-set {
+    background: var(--color-primary);
+  }
+
+  .media-preview-alt-set:hover {
+    background: var(--color-primary-hover);
+  }
+
+  /* Alt-text + discard-confirm overlays */
+  .alt-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    animation: alt-fade 0.2s ease;
+  }
+
+  @keyframes alt-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .alt-dialog {
+    background: var(--color-surface-raised);
+    border-radius: var(--radius-xl);
+    padding: var(--space-6);
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  }
+
+  .alt-title {
+    font-size: var(--text-lg);
+    font-weight: 700;
+    color: var(--color-text);
+    margin-block-end: var(--space-2);
+  }
+
+  .alt-hint {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    margin-block-end: var(--space-3);
+    line-height: 1.5;
+  }
+
+  .alt-textarea {
+    width: 100%;
+    min-height: 96px;
+    padding: var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font: inherit;
+    resize: vertical;
+    box-sizing: border-box;
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .alt-textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-soft);
+  }
+
+  .alt-char-count {
+    text-align: end;
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+    margin-block-start: 4px;
+  }
+
+  .alt-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-block-start: var(--space-4);
   }
 </style>
