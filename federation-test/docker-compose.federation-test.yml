@@ -104,6 +104,12 @@ services:
       # to encrypt without it and crashes the send-message path.
       # Read at runtime from MESSAGE_ENCRYPTION_KEY.
       MESSAGE_ENCRYPTION_KEY: ${MESSAGE_ENCRYPTION_KEY:-}
+      # Point user-upload storage at the mounted volume path. Without
+      # this the storage backend defaults to priv/uploads inside the
+      # release (/app/lib/hybridsocial-0.1.0/priv/uploads), which the
+      # hs_uploads volume is NOT mounted at — so every rebuild wiped
+      # every uploaded image.
+      UPLOADS_DIR: "/app/uploads"
     volumes:
       - hs_uploads:/app/uploads
       # pg_dump output from the admin backup feature. Keeping this
