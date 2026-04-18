@@ -642,6 +642,7 @@ defmodule HybridsocialWeb.Router do
     get "/reports", AdminController, :list_reports
     get "/reports/:id", AdminController, :show_report
     post "/reports/:id/resolve", AdminController, :resolve_report
+    post "/reports/:id/dismiss", AdminController, :dismiss_report
     post "/reports/:id/assign", AdminController, :assign_report
 
     # Audit Log

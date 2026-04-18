@@ -856,6 +856,25 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
     end
   end
 
+  def dismiss_report(conn, %{"id" => id}) do
+    with :ok <- require_permission(conn, "reports.manage") do
+      moderator_id = conn.assigns.current_identity.id
+
+      case Moderation.dismiss_report(id, moderator_id) do
+        {:ok, report} ->
+          conn |> put_status(:ok) |> json(%{data: serialize_report(report)})
+
+        {:error, :not_found} ->
+          conn |> put_status(:not_found) |> json(%{error: "report.not_found"})
+
+        {:error, _} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: "report.dismiss_failed"})
+      end
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
   def assign_report(conn, %{"id" => id} = params) do
     with :ok <- require_permission(conn, "reports.assign") do
       moderator_id = params["moderator_id"] || conn.assigns.current_identity.id

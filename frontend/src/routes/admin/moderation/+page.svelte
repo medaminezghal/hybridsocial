@@ -144,9 +144,16 @@
   async function handleResolve(report: AdminReport) {
     try {
       await resolveReport(report.id);
-      report.status = 'resolved';
-      reports = [...reports];
-      addToast('Report resolved', 'success');
+      // Replace immutably so Svelte reliably re-derives filteredReports.
+      reports = reports.map((r) =>
+        r.id === report.id ? { ...r, status: 'resolved' as const } : r
+      );
+      addToast(
+        reportStatusFilter === 'pending'
+          ? 'Report resolved — moved to the Resolved filter'
+          : 'Report resolved',
+        'success'
+      );
     } catch {
       addToast('Failed to resolve report', 'error');
     }
@@ -155,9 +162,15 @@
   async function handleDismiss(report: AdminReport) {
     try {
       await dismissReport(report.id);
-      report.status = 'dismissed';
-      reports = [...reports];
-      addToast('Report dismissed', 'success');
+      reports = reports.map((r) =>
+        r.id === report.id ? { ...r, status: 'dismissed' as const } : r
+      );
+      addToast(
+        reportStatusFilter === 'pending'
+          ? 'Report dismissed — moved to the Dismissed filter'
+          : 'Report dismissed',
+        'success'
+      );
     } catch {
       addToast('Failed to dismiss report', 'error');
     }
