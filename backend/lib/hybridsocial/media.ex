@@ -121,9 +121,16 @@ defmodule Hybridsocial.Media do
   Returns the public URL for a media record.
   Uses the media_host config setting if available for URL generation.
   """
-  def media_url(%MediaFile{storage_path: storage_path}) do
-    Storage.url(storage_path)
+  def media_url(%MediaFile{storage_path: path}) when is_binary(path) and path != "" do
+    Storage.url(path)
   end
 
-  def media_url(nil), do: nil
+  # Remote attachment not yet cached locally — serve via the media
+  # proxy when enabled (hides origin from the browser), otherwise
+  # fall back to the raw remote URL so the image at least loads.
+  def media_url(%MediaFile{remote_url: remote_url}) when is_binary(remote_url) and remote_url != "" do
+    Hybridsocial.Media.MediaProxy.url(remote_url) || remote_url
+  end
+
+  def media_url(_), do: nil
 end
