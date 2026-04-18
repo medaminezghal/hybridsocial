@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/state';
+  import { goto } from '$app/navigation';
   import type { Post } from '$lib/api/types.js';
   import { getPost, getPostContext } from '$lib/api/statuses.js';
+  import { addToast } from '$lib/stores/toast.js';
   import PostCard from '$lib/components/post/PostCard.svelte';
   import ThreadedReplies from '$lib/components/post/ThreadedReplies.svelte';
   import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -56,9 +58,18 @@
 
     function handlePostDeleted(e: Event) {
       const { id } = (e as CustomEvent).detail;
-      if (id) {
-        descendants = descendants.filter(d => d.id !== id);
+      if (!id) return;
+
+      // Focused post deleted — confirm it to the user and route them
+      // back home instead of leaving them staring at a page for a
+      // post that no longer exists.
+      if (id === postId) {
+        addToast('Post deleted', 'success');
+        goto('/home', { replaceState: true });
+        return;
       }
+
+      descendants = descendants.filter(d => d.id !== id);
     }
 
     window.addEventListener('new-post', handleNewPost);
