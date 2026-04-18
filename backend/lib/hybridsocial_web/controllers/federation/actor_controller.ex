@@ -17,6 +17,10 @@ defmodule HybridsocialWeb.Federation.ActorController do
   @ap_content_type "application/activity+json"
   @ld_content_type ~s(application/ld+json; profile="https://www.w3.org/ns/activitystreams")
 
+  # sobelow_skip ["XSS.ContentType"]
+  # Safe: negotiated_content_type/1 only returns one of two module
+  # attributes (@ap_content_type, @ld_content_type) — no user data
+  # reaches the header.
   def show(conn, %{"id" => id}) do
     case Accounts.get_identity(id) do
       nil ->
@@ -47,6 +51,7 @@ defmodule HybridsocialWeb.Federation.ActorController do
     end
   end
 
+  # sobelow_skip ["XSS.ContentType"]
   def followers(conn, %{"id" => id}) do
     case Accounts.get_identity(id) do
       nil ->
@@ -88,6 +93,7 @@ defmodule HybridsocialWeb.Federation.ActorController do
     end
   end
 
+  # sobelow_skip ["XSS.ContentType"]
   def following(conn, %{"id" => id}) do
     case Accounts.get_identity(id) do
       nil ->
@@ -158,6 +164,7 @@ defmodule HybridsocialWeb.Federation.ActorController do
     })
   end
 
+  # sobelow_skip ["XSS.ContentType"]
   def outbox(conn, %{"id" => id} = params) do
     case Accounts.get_identity(id) do
       nil ->

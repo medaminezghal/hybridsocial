@@ -54,14 +54,15 @@ defmodule Hybridsocial.Emails.Renderer do
   end
 
   defp lookup(assigns, path) when is_binary(path) do
+    # Assigns maps are always string-keyed (emitters build them
+    # explicitly). We used to fall back to String.to_atom/1 here to
+    # support atom-keyed structs, but that would let template paths
+    # create new atoms at runtime — Sobelow flagged it (DOS.StringToAtom)
+    # and the fallback wasn't load-bearing. Kept string-only.
     path
     |> String.split(".")
     |> Enum.reduce(assigns, fn segment, acc ->
-      if is_map(acc) do
-        Map.get(acc, segment) || Map.get(acc, String.to_atom(segment))
-      else
-        nil
-      end
+      if is_map(acc), do: Map.get(acc, segment), else: nil
     end)
   end
 

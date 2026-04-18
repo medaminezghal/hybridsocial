@@ -16,14 +16,26 @@ defmodule HybridsocialWeb.Api.V1.AdminControllerTest do
     identity
   end
 
+  # The RequireAdmin plug gates every admin endpoint on BOTH an active
+  # role and otp_enabled=true. Tests that want to exercise admin
+  # endpoints have to flip both bits, not just the role — otherwise
+  # every request 403s with "admin.otp_required".
   defp make_admin(identity) do
     {:ok, _} = RBAC.assign_role(identity.id, "owner", identity.id)
+    enable_otp(identity)
     identity
   end
 
   defp make_moderator(identity) do
     {:ok, _} = RBAC.assign_role(identity.id, "moderator", identity.id)
+    enable_otp(identity)
     identity
+  end
+
+  defp enable_otp(identity) do
+    Hybridsocial.Accounts.get_user_by_identity(identity.id)
+    |> Ecto.Changeset.change(otp_enabled: true)
+    |> Hybridsocial.Repo.update!()
   end
 
   defp auth_conn(conn, identity) do
@@ -264,6 +276,7 @@ defmodule HybridsocialWeb.Api.V1.AdminControllerTest do
     test "community_manager cannot access reports", %{conn: conn} do
       cm = create_user("cm1", "cm1@test.com")
       {:ok, _} = RBAC.assign_role(cm.id, "community_manager", cm.id)
+      enable_otp(cm)
       conn = auth_conn(conn, cm)
 
       conn = get(conn, "/api/v1/admin/reports")
@@ -273,6 +286,7 @@ defmodule HybridsocialWeb.Api.V1.AdminControllerTest do
     test "community_manager can access content filters", %{conn: conn} do
       cm = create_user("cm2", "cm2@test.com")
       {:ok, _} = RBAC.assign_role(cm.id, "community_manager", cm.id)
+      enable_otp(cm)
       conn = auth_conn(conn, cm)
 
       conn = get(conn, "/api/v1/admin/content_filters")

@@ -421,7 +421,11 @@ defmodule HybridsocialWeb.CrawlerController do
   # Render
   # ---------------------------------------------------------------------------
 
+  # sobelow_skip ["XSS.SendResp"]
   defp render_og(conn, og) do
+    # Safe: html is built entirely from server-side og data where every
+    # interpolated field goes through `escape_html/1` in build_html/1
+    # before landing in the template string.
     html = build_html(og)
 
     conn
@@ -463,7 +467,11 @@ defmodule HybridsocialWeb.CrawlerController do
   # Browsers hitting these Phoenix routes are an edge case — normally Caddy
   # routes browser requests directly to the SPA bundle. If they land here,
   # emit a minimal redirect shell so they still get to the SPA.
+  # sobelow_skip ["XSS.SendResp"]
   defp send_spa_handoff(conn) do
+    # Safe: the only interpolations are `instance_name/0` (config
+    # string, escape_html'd) and the request URL (escape_html'd + JSON
+    # -encoded for the JS redirect). No user input reaches the HTML.
     url = build_request_url(conn)
 
     html = """

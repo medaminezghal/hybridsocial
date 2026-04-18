@@ -46,7 +46,12 @@ defmodule HybridsocialWeb.MediaProxyController do
     end
   end
 
+  # sobelow_skip ["XSS.SendResp"]
   defp serve_and_cache(conn, remote_url) do
+    # Safe: response.body is a raw remote-media byte stream served
+    # under a sanitized content-type (see sanitize_content_type/1) +
+    # X-Content-Type-Options: nosniff in put_response_headers/2. The
+    # malware scanner rejects executables before this line.
     with {:ok, response} <- fetch_remote(remote_url),
          :ok <- scan_for_malware(response.body) do
       content_type = sanitize_content_type(get_content_type(response))

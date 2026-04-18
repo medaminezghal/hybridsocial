@@ -402,10 +402,15 @@ defmodule Hybridsocial.Trending do
     current_hour_unix = DateTime.to_unix(now) - rem(DateTime.to_unix(now), 3600)
     base_hour = DateTime.from_unix!(current_hour_unix - 6 * 3600)
 
+    # `post_hashtags` is queried as a raw table source (no schema),
+    # so Ecto has no type info for `ph.hashtag_id`. Without an
+    # explicit `type/2` cast, Postgrex tries to encode the UUID
+    # strings as raw 16-byte binaries and crashes. Explicit cast
+    # tells it the array is `{:array, Ecto.UUID}`.
     rows =
       Post
       |> join(:inner, [p], ph in "post_hashtags", on: ph.post_id == p.id)
-      |> where([p, ph], ph.hashtag_id in ^hashtag_ids)
+      |> where([p, ph], ph.hashtag_id in type(^hashtag_ids, {:array, Ecto.UUID}))
       |> where([p, _ph], p.inserted_at >= ^history_cutoff and is_nil(p.deleted_at))
       |> group_by([p, ph], [ph.hashtag_id, fragment("date_trunc('hour', ?)", p.inserted_at)])
       |> select([p, ph], %{
