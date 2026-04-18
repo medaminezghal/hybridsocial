@@ -73,10 +73,25 @@
     }
   }
 
+  function inviteLink(code: string): string {
+    const base = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${base}/register?invite=${encodeURIComponent(code)}`;
+  }
+
   async function copyCode(code: string) {
     try {
+      await navigator.clipboard.writeText(inviteLink(code));
+      addToast('Invite link copied', 'success');
+    } catch {
+      addToast('Failed to copy link', 'error');
+    }
+  }
+
+  async function copyRawCode(code: string, e: MouseEvent) {
+    e.stopPropagation();
+    try {
       await navigator.clipboard.writeText(code);
-      addToast('Code copied to clipboard', 'success');
+      addToast('Raw code copied', 'success');
     } catch {
       addToast('Failed to copy code', 'error');
     }
@@ -126,17 +141,18 @@
         <div class="list-item card">
           <div class="invite-info">
             <div class="invite-code-row">
-              <code class="invite-code">{invite.code}</code>
+              <code class="invite-code" title="Raw code — click icon to copy" onclick={(e) => copyRawCode(invite.code, e)}>{invite.code}</code>
               <button
                 class="btn btn-sm btn-ghost copy-btn"
                 type="button"
                 onclick={() => copyCode(invite.code)}
-                title="Copy to clipboard"
+                title="Copy registration link — share this with the invitee"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                  <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
                 </svg>
+                Copy link
               </button>
               <span class="status-badge {statusClass(invite.status)}">{invite.status}</span>
             </div>

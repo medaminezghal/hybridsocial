@@ -4,6 +4,7 @@
   import { ApiError } from '$lib/api/client.js';
   import { solvePow, type PowChallenge, type PowSolution } from '$lib/utils/pow.js';
   import { tError } from '$lib/utils/i18n.js';
+  import { browser } from '$app/environment';
 
   let handle = $state('');
   let email = $state('');
@@ -14,6 +15,14 @@
   let fieldErrors = $state<Record<string, string>>({});
   let loading = $state(false);
   let success = $state(false);
+
+  // Invite code — populated from `?invite=…` when the admin shared
+  // a link, or typed manually when the instance requires one.
+  let inviteCode = $state('');
+  if (browser) {
+    const qp = new URLSearchParams(window.location.search).get('invite');
+    if (qp) inviteCode = qp;
+  }
 
   // PoW
   let powSolution = $state<PowSolution | null>(null);
@@ -165,6 +174,7 @@
       const body: Record<string, unknown> = { handle, email, password, password_confirmation: passwordConfirm };
       if (powSolution) body.pow_solution = powSolution;
       if (turnstileEnabled && turnstileToken) body.turnstile_token = turnstileToken;
+      if (inviteCode.trim()) body.invite_code = inviteCode.trim();
 
       await api.post('/api/v1/auth/register', body);
       success = true;
@@ -255,6 +265,25 @@
             <p class="auth-field-error" role="alert">{fieldErrors.handle}</p>
           {:else if handleInvalid}
             <p class="auth-field-error" role="alert">Only letters, numbers, and underscores</p>
+          {/if}
+        </div>
+
+        <div class="auth-field">
+          <label for="reg-invite" class="auth-label">
+            INVITE CODE <span class="auth-label-optional">(optional)</span>
+          </label>
+          <input
+            id="reg-invite"
+            type="text"
+            class="auth-input"
+            class:auth-input-error={!!fieldErrors.invite_code}
+            placeholder="If an admin gave you an invite code, enter it here"
+            bind:value={inviteCode}
+            disabled={loading}
+            autocomplete="off"
+          />
+          {#if fieldErrors.invite_code}
+            <p class="auth-field-error" role="alert">{fieldErrors.invite_code}</p>
           {/if}
         </div>
 
@@ -473,6 +502,7 @@
 
   .auth-field { margin-block-end: 16px; }
   .auth-label { display: block; font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7280; margin-block-end: 6px; margin-inline-start: 4px; }
+  .auth-label-optional { font-weight: 500; color: #9ca3af; }
   .auth-input { display: block; width: 100%; height: 46px; padding: 0 16px; background: #e6e8e9; border: none; border-radius: 10px; font-size: 0.875rem; color: var(--color-text); transition: background-color 0.2s ease, box-shadow 0.2s ease; }
   .auth-input::placeholder { color: #9ca3af; }
   .auth-input:focus { outline: none; background: white; box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb, 59, 130, 246), 0.2); }
