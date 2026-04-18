@@ -207,6 +207,15 @@ defmodule Hybridsocial.Social.Posts do
     # mentioned remote users only).
     maybe_federate_create(post)
 
+    Hybridsocial.Moderation.fire_webhook("post.created", %{
+      id: post.id,
+      author_id: post.identity_id,
+      author_handle: post.identity && post.identity.handle,
+      visibility: post.visibility,
+      content: post.content,
+      created_at: post.inserted_at
+    })
+
     post
   end
 
@@ -592,6 +601,13 @@ defmodule Hybridsocial.Social.Posts do
         {:ok, deleted} ->
           Phoenix.PubSub.broadcast(Hybridsocial.PubSub, "posts", {:post_deleted, post_id})
           federate_delete(deleted)
+
+          Hybridsocial.Moderation.fire_webhook("post.deleted", %{
+            id: deleted.id,
+            author_id: deleted.identity_id,
+            deleted_at: deleted.deleted_at
+          })
+
           {:ok, deleted}
 
         error ->

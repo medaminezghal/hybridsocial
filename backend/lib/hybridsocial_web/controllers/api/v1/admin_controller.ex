@@ -843,6 +843,12 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
 
       case Moderation.resolve_report(id, moderator_id, action_taken) do
         {:ok, report} ->
+          Moderation.fire_webhook("report.resolved", %{
+            id: report.id,
+            moderator_id: moderator_id,
+            action_taken: action_taken
+          })
+
           conn |> put_status(:ok) |> json(%{data: serialize_report(report)})
 
         {:error, :not_found} ->
@@ -862,6 +868,12 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
 
       case Moderation.dismiss_report(id, moderator_id) do
         {:ok, report} ->
+          Moderation.fire_webhook("report.resolved", %{
+            id: report.id,
+            moderator_id: moderator_id,
+            action_taken: "dismissed"
+          })
+
           conn |> put_status(:ok) |> json(%{data: serialize_report(report)})
 
         {:error, :not_found} ->
@@ -972,6 +984,13 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
     case Hybridsocial.Accounts.suspend_identity(identity) do
       {:ok, updated} ->
         Moderation.log(admin_id, "account.suspended", "identity", identity.id, %{})
+
+        Moderation.fire_webhook("user.suspended", %{
+          id: identity.id,
+          handle: identity.handle,
+          admin_id: admin_id
+        })
+
         conn |> put_status(:ok) |> json(%{data: serialize_account(updated)})
 
       {:error, _} ->
@@ -983,6 +1002,13 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
     case Hybridsocial.Accounts.unsuspend_identity(identity) do
       {:ok, updated} ->
         Moderation.log(admin_id, "account.unsuspended", "identity", identity.id, %{})
+
+        Moderation.fire_webhook("user.unsuspended", %{
+          id: identity.id,
+          handle: identity.handle,
+          admin_id: admin_id
+        })
+
         conn |> put_status(:ok) |> json(%{data: serialize_account(updated)})
 
       {:error, _} ->
@@ -1404,6 +1430,15 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
             reason: reason
           })
 
+          if policy in ["block", "suspend"] do
+            Moderation.fire_webhook("federation.instance_blocked", %{
+              domain: domain,
+              policy: policy,
+              reason: reason,
+              admin_id: admin_id
+            })
+          end
+
           conn
           |> put_status(:created)
           |> json(%{data: serialize_instance_policy(instance_policy)})
@@ -1485,7 +1520,22 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
 
       conn
       |> put_status(:ok)
-      |> json(%{data: Enum.map(webhooks, &serialize_webhook/1)})
+      |> json(%{
+        data: Enum.map(webhooks, &serialize_webhook/1),
+        known_events: Moderation.known_events()
+      })
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  def list_webhook_deliveries(conn, %{"id" => id}) do
+    with :ok <- require_permission(conn, "settings.manage") do
+      deliveries = Moderation.list_recent_deliveries(id)
+
+      conn
+      |> put_status(:ok)
+      |> json(%{data: Enum.map(deliveries, &serialize_webhook_delivery/1)})
     else
       {:error, perm} -> deny(conn, perm)
     end
@@ -2531,6 +2581,20 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
       created_by: webhook.created_by,
       created_at: webhook.inserted_at,
       updated_at: webhook.updated_at
+    }
+  end
+
+  defp serialize_webhook_delivery(d) do
+    %{
+      id: d.id,
+      event: d.event,
+      status: d.status,
+      attempts: d.attempts,
+      last_status_code: d.last_status_code,
+      last_error: d.last_error,
+      next_attempt_at: d.next_attempt_at,
+      delivered_at: d.delivered_at,
+      created_at: d.inserted_at
     }
   end
 

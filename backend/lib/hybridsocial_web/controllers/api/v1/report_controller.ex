@@ -21,6 +21,16 @@ defmodule HybridsocialWeb.Api.V1.ReportController do
       {:ok, report} ->
         reported = report.reported_id && Accounts.get_identity(report.reported_id)
 
+        Moderation.fire_webhook("report.filed", %{
+          id: report.id,
+          reporter_id: reporter_id,
+          reported_id: report.reported_id,
+          target_type: report.target_type,
+          target_id: report.target_id,
+          category: report.category,
+          forwarded: forward?
+        })
+
         # Optional: reporter asked us to also block the reported user
         # locally. Fire-and-forget — a failed block doesn't invalidate
         # the report itself.

@@ -49,7 +49,9 @@ defmodule Hybridsocial.Application do
             # Prunes resolved/dismissed reports older than report_retention_days (default 90)
             Hybridsocial.Moderation.ReportExpiryWorker,
             # Prunes approved/rejected appeals older than appeal_retention_days (default 90)
-            Hybridsocial.Moderation.AppealExpiryWorker
+            Hybridsocial.Moderation.AppealExpiryWorker,
+            # Drains the webhook delivery queue with exponential backoff
+            Hybridsocial.Moderation.WebhookDeliveryWorker
           ],
           else: []
         ) ++

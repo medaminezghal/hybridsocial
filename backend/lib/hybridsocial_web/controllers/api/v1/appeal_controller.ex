@@ -16,6 +16,12 @@ defmodule HybridsocialWeb.Api.V1.AppealController do
 
     case Moderation.create_appeal(attrs) do
       {:ok, appeal} ->
+        Moderation.fire_webhook("appeal.filed", %{
+          id: appeal.id,
+          identity_id: identity_id,
+          action_type: appeal.action_type
+        })
+
         conn |> put_status(:created) |> json(%{data: serialize_appeal(appeal)})
 
       {:error, :already_pending} ->

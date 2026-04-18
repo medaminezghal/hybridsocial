@@ -12,6 +12,7 @@ defmodule Hybridsocial.Moderation do
     ContentFilter,
     BannedDomain,
     Webhook,
+    WebhookDelivery,
     IpBan,
     EmailDomainBan,
     Appeal,
@@ -410,37 +411,63 @@ defmodule Hybridsocial.Moderation do
     end
   end
 
-  def fire_webhook(event, payload) do
+  @doc """
+  Known webhook events. Kept as a static catalog so the admin UI can
+  render checkboxes instead of forcing admins to hand-type event
+  strings, and so callers get a compile-time crash on typos via
+  `Enum.member?/2` in tests.
+  """
+  def known_events do
+    [
+      "post.created",
+      "post.deleted",
+      "user.registered",
+      "user.suspended",
+      "user.unsuspended",
+      "report.filed",
+      "report.resolved",
+      "appeal.filed",
+      "moderation.queued",
+      "federation.instance_blocked"
+    ]
+  end
+
+  @doc """
+  Enqueues a webhook delivery for every enabled webhook that subscribes
+  to `event`. An empty `events` array on a webhook means "all events".
+  The `WebhookDeliveryWorker` drains the queue and retries with
+  exponential backoff on non-2xx so a flapping receiver doesn't
+  silently lose events.
+  """
+  def fire_webhook(event, payload) when is_binary(event) do
+    now = DateTime.utc_now()
+
     Webhook
     |> where([w], w.enabled == true)
     |> Repo.all()
-    |> Enum.filter(fn w -> event in w.events || w.events == [] end)
+    |> Enum.filter(fn w -> w.events == [] or event in w.events end)
     |> Enum.each(fn webhook ->
-      Task.start(fn -> deliver_webhook(webhook, event, payload) end)
+      %WebhookDelivery{}
+      |> WebhookDelivery.changeset(%{
+        webhook_id: webhook.id,
+        event: event,
+        payload: payload,
+        status: "pending",
+        attempts: 0,
+        next_attempt_at: now
+      })
+      |> Repo.insert()
     end)
 
     :ok
   end
 
-  defp deliver_webhook(webhook, event, payload) do
-    body = Jason.encode!(%{event: event, payload: payload})
-
-    headers = [
-      {"content-type", "application/json"},
-      {"x-webhook-event", event}
-    ]
-
-    headers =
-      if webhook.secret do
-        signature =
-          :crypto.mac(:hmac, :sha256, webhook.secret, body) |> Base.encode16(case: :lower)
-
-        [{"x-webhook-signature", signature} | headers]
-      else
-        headers
-      end
-
-    HTTPoison.post(webhook.url, body, headers)
+  def list_recent_deliveries(webhook_id, limit \\ 20) do
+    WebhookDelivery
+    |> where([d], d.webhook_id == ^webhook_id)
+    |> order_by([d], desc: d.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
   end
 
   # ── Appeals ──────────────────────────────────────────────────────────
@@ -673,6 +700,16 @@ defmodule Hybridsocial.Moderation do
       Task.Supervisor.start_child(Hybridsocial.TaskSupervisor, fn ->
         notify_staff_by_email(item)
       end)
+
+      # 3) External integrations (Slack/Matrix/on-call pager etc.)
+      fire_webhook("moderation.queued", %{
+        id: item.id,
+        item_type: item.item_type,
+        item_id: item.item_id,
+        source: item.source,
+        reason: item.reason,
+        severity: item.severity
+      })
     end
 
     result

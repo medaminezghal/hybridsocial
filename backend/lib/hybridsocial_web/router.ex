@@ -773,6 +773,7 @@ defmodule HybridsocialWeb.Router do
     post "/webhooks", AdminController, :create_webhook
     put "/webhooks/:id", AdminController, :update_webhook
     delete "/webhooks/:id", AdminController, :delete_webhook
+    get "/webhooks/:id/deliveries", AdminController, :list_webhook_deliveries
 
     # IP Bans
     get "/ip_bans", AdminController, :list_ip_bans

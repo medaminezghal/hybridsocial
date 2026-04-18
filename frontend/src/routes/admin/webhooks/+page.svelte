@@ -3,25 +3,36 @@
   import { addToast } from '$lib/stores/toast.js';
   import Modal from '$lib/components/ui/Modal.svelte';
   import {
-    getWebhooks, createWebhook, updateWebhook, deleteWebhook
+    getWebhooks, createWebhook, updateWebhook, deleteWebhook, getWebhookDeliveries,
+    type WebhookDelivery
   } from '$lib/api/admin.js';
   import type { Webhook } from '$lib/api/types.js';
 
-  const AVAILABLE_EVENTS = [
-    'account.created',
-    'account.updated',
-    'account.suspended',
-    'report.created',
-    'report.resolved',
+  // Fallback if the backend didn't return a known_events list (older
+  // deployments / tests). The canonical source is Moderation.known_events/0
+  // in the backend; whatever it returns overrides this.
+  const FALLBACK_EVENTS = [
     'post.created',
     'post.deleted',
-    'post.reported',
-    'follow.created',
-    'federation.policy_changed'
+    'user.registered',
+    'user.suspended',
+    'user.unsuspended',
+    'report.filed',
+    'report.resolved',
+    'appeal.filed',
+    'moderation.queued',
+    'federation.instance_blocked'
   ];
 
+  let knownEvents: string[] = $state(FALLBACK_EVENTS);
   let webhooks: Webhook[] = $state([]);
   let loading = $state(true);
+
+  // Recent-deliveries drawer
+  let deliveriesOpen = $state(false);
+  let deliveriesTarget: Webhook | null = $state(null);
+  let deliveries: WebhookDelivery[] = $state([]);
+  let deliveriesLoading = $state(false);
 
   // Create form
   let createModalOpen = $state(false);
@@ -42,11 +53,29 @@
   async function loadWebhooks() {
     loading = true;
     try {
-      webhooks = await getWebhooks();
+      const res = await getWebhooks();
+      webhooks = res.data;
+      if (res.known_events && res.known_events.length > 0) {
+        knownEvents = res.known_events;
+      }
     } catch {
       addToast('Failed to load webhooks', 'error');
     } finally {
       loading = false;
+    }
+  }
+
+  async function openDeliveries(webhook: Webhook) {
+    deliveriesTarget = webhook;
+    deliveriesOpen = true;
+    deliveriesLoading = true;
+    deliveries = [];
+    try {
+      deliveries = await getWebhookDeliveries(webhook.id);
+    } catch {
+      addToast('Failed to load deliveries', 'error');
+    } finally {
+      deliveriesLoading = false;
     }
   }
 
@@ -164,6 +193,11 @@
             <button
               class="btn btn-sm btn-outline"
               type="button"
+              onclick={() => openDeliveries(webhook)}
+            >Deliveries</button>
+            <button
+              class="btn btn-sm btn-outline"
+              type="button"
               onclick={() => handleToggleEnabled(webhook)}
             >
               {webhook.enabled ? 'Disable' : 'Enable'}
@@ -197,7 +231,7 @@
     <div class="form-group">
       <label class="form-label">Events</label>
       <div class="events-grid">
-        {#each AVAILABLE_EVENTS as event}
+        {#each knownEvents as event}
           <label class="checkbox-label">
             <input
               type="checkbox"
@@ -208,6 +242,7 @@
           </label>
         {/each}
       </div>
+      <p class="hint-text">Subscribe to at least one event. Leave all unchecked to match nothing (webhook will never fire).</p>
     </div>
 
     <div class="form-group">
@@ -224,6 +259,37 @@
       </button>
     </div>
   </form>
+</Modal>
+
+<Modal bind:open={deliveriesOpen} title="Recent deliveries">
+  {#if deliveriesTarget}
+    <p class="target-url"><code>{deliveriesTarget.url}</code></p>
+  {/if}
+  {#if deliveriesLoading}
+    <div class="skeleton" style="height: 80px"></div>
+  {:else if deliveries.length === 0}
+    <p class="empty-text">No deliveries yet.</p>
+  {:else}
+    <div class="deliveries-list">
+      {#each deliveries as d (d.id)}
+        <div class="delivery-row">
+          <span class="delivery-event">{d.event}</span>
+          <span class="delivery-status status-{d.status}">{d.status}</span>
+          <span class="delivery-code">
+            {d.last_status_code ? `HTTP ${d.last_status_code}` : (d.attempts === 0 ? 'queued' : '—')}
+          </span>
+          <span class="delivery-attempts">{d.attempts} {d.attempts === 1 ? 'try' : 'tries'}</span>
+          <span class="delivery-time">{formatDate(d.created_at)}</span>
+          {#if d.last_error}
+            <span class="delivery-error" title={d.last_error}>{d.last_error}</span>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
+  <div class="modal-actions">
+    <button class="btn btn-ghost" type="button" onclick={() => (deliveriesOpen = false)}>Close</button>
+  </div>
 </Modal>
 
 <Modal bind:open={deleteModalOpen} title="Delete Webhook">
@@ -380,5 +446,78 @@
     font-size: var(--text-sm);
     text-align: center;
     padding: var(--space-6) 0;
+  }
+
+  .hint-text {
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+    margin-block-start: var(--space-2);
+  }
+
+  .target-url {
+    font-size: var(--text-sm);
+    margin-block-end: var(--space-3);
+    word-break: break-all;
+  }
+
+  .deliveries-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    max-height: 360px;
+    overflow-y: auto;
+  }
+
+  .delivery-row {
+    display: grid;
+    grid-template-columns: minmax(140px, 1fr) auto auto auto auto;
+    gap: var(--space-2);
+    align-items: center;
+    font-size: var(--text-xs);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+  }
+
+  .delivery-event {
+    font-weight: 600;
+  }
+
+  .delivery-status {
+    font-weight: 600;
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-full);
+    text-transform: capitalize;
+  }
+
+  .status-delivered {
+    background: var(--color-success-soft);
+    color: #166534;
+  }
+
+  .status-pending {
+    background: var(--color-warning-soft, #fef3c7);
+    color: #92400e;
+  }
+
+  .status-failed {
+    background: var(--color-danger-soft);
+    color: #991b1b;
+  }
+
+  .delivery-code,
+  .delivery-attempts,
+  .delivery-time {
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
+
+  .delivery-error {
+    grid-column: 1 / -1;
+    color: var(--color-danger);
+    font-family: var(--font-mono, monospace);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 </style>

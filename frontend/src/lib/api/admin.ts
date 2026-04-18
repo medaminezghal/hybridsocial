@@ -319,8 +319,11 @@ export function seedSitePages(): Promise<SitePage[]> {
 }
 
 // Webhooks
-export function getWebhooks(): Promise<Webhook[]> {
-  return api.get<any>('/api/v1/admin/webhooks').then(r => r.data || r);
+export function getWebhooks(): Promise<{ data: Webhook[]; known_events: string[] }> {
+  return api.get<any>('/api/v1/admin/webhooks').then(r => ({
+    data: r.data || [],
+    known_events: r.known_events || []
+  }));
 }
 
 export function createWebhook(webhook: { url: string; events: string[]; secret?: string; enabled?: boolean }): Promise<Webhook> {
@@ -333,6 +336,22 @@ export function updateWebhook(id: string, webhook: Partial<{ url: string; events
 
 export function deleteWebhook(id: string): Promise<void> {
   return api.delete(`/api/v1/admin/webhooks/${id}`);
+}
+
+export interface WebhookDelivery {
+  id: string;
+  event: string;
+  status: 'pending' | 'delivered' | 'failed';
+  attempts: number;
+  last_status_code: number | null;
+  last_error: string | null;
+  next_attempt_at: string;
+  delivered_at: string | null;
+  created_at: string;
+}
+
+export function getWebhookDeliveries(id: string): Promise<WebhookDelivery[]> {
+  return api.get<{ data: WebhookDelivery[] }>(`/api/v1/admin/webhooks/${id}/deliveries`).then(r => r.data || []);
 }
 
 // Appeals

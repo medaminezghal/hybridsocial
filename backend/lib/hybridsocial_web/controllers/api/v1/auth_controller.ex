@@ -17,6 +17,13 @@ defmodule HybridsocialWeb.Api.V1.AuthController do
           get_client_ip(conn)
         )
 
+        Moderation.fire_webhook("user.registered", %{
+          id: identity.id,
+          handle: identity.handle,
+          display_name: identity.display_name,
+          created_at: identity.inserted_at
+        })
+
         conn
         |> put_status(:created)
         |> json(%{
