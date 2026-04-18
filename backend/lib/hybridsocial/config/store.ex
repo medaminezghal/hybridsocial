@@ -92,7 +92,11 @@ defmodule Hybridsocial.Config.Store do
     case Repo.get(Setting, key) do
       nil ->
         %Setting{}
-        |> Setting.changeset(%{key: key, value: wrapped_value})
+        |> Setting.changeset(%{
+          key: key,
+          value: wrapped_value,
+          category: category_for_key(key)
+        })
         |> Repo.insert()
 
       existing ->
@@ -101,4 +105,18 @@ defmodule Hybridsocial.Config.Store do
         |> Repo.update()
     end
   end
+
+  # Infer category from key prefix so newly-created settings land in
+  # the right bucket instead of all defaulting to "general". The
+  # admin UIs filter by category (tiers page wants category == "tiers",
+  # etc.), so without this, values saved from those pages came back
+  # empty on reload because the row existed but with the wrong
+  # category.
+  defp category_for_key("tier_" <> _), do: "tiers"
+  defp category_for_key("theme_" <> _), do: "theme"
+  defp category_for_key("email_" <> _), do: "email"
+  defp category_for_key("app_" <> _), do: "apps"
+  defp category_for_key("backup_" <> _), do: "backups"
+  defp category_for_key("tiers_" <> _), do: "tiers"
+  defp category_for_key(_), do: "general"
 end

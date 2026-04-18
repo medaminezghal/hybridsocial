@@ -9,6 +9,25 @@ defmodule Hybridsocial.Premium.TierLimits do
 
   @tiers ~w(free verified_starter verified_creator verified_pro)
 
+  # Default display labels — overridable per-instance by setting
+  # tier_<key>_name in Config. Admin UI renders these so the
+  # operator can rebrand the tiers (e.g. "Free" → "Basic",
+  # "verified_pro" → "Enterprise").
+  @default_names %{
+    "free" => "Free",
+    "verified_starter" => "Starter",
+    "verified_creator" => "Creator",
+    "verified_pro" => "Pro"
+  }
+
+  def tier_name(tier) when tier in @tiers do
+    Config.get("tier_#{tier}_name", Map.fetch!(@default_names, tier))
+  end
+
+  def tier_name(_), do: nil
+
+  def default_tier_names, do: @default_names
+
   @defaults %{
     "free" => %{
       char_limit: 800,

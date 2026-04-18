@@ -11,12 +11,24 @@
   // Track changes
   let changed: Record<string, string> = $state({});
 
-  const tierNames = [
-    { key: 'free', label: 'Free (L0)' },
-    { key: 'verified_starter', label: 'Starter (L1)' },
-    { key: 'verified_creator', label: 'Creator (L2)' },
-    { key: 'verified_pro', label: 'Pro (L3)' }
-  ];
+  // Tier internal keys are fixed (they're referenced by TierLimits
+  // and stored on identities.verification_tier), but the display
+  // name is operator-editable via tier_<key>_name settings.
+  const TIER_KEYS = ['free', 'verified_starter', 'verified_creator', 'verified_pro'] as const;
+  const DEFAULT_TIER_NAMES: Record<string, string> = {
+    free: 'Free',
+    verified_starter: 'Starter',
+    verified_creator: 'Creator',
+    verified_pro: 'Pro'
+  };
+
+  let tierNames = $derived(
+    TIER_KEYS.map((key, i) => ({
+      key,
+      label: getSettingValue(`tier_${key}_name`) || DEFAULT_TIER_NAMES[key],
+      level: `L${i}`
+    }))
+  );
 
   const limitRows = [
     { key: 'char_limit', label: 'Characters per post', type: 'integer' },
@@ -130,12 +142,33 @@
         <thead>
           <tr>
             <th class="col-limit">Limit</th>
-            {#each tierNames as tier}
-              <th class="col-tier">{tier.label}</th>
+            {#each tierNames as tier (tier.key)}
+              <th class="col-tier">
+                <span class="col-tier-level">{tier.level}</span>
+                <span class="col-tier-key">{tier.key}</span>
+              </th>
             {/each}
           </tr>
         </thead>
         <tbody>
+          <tr class="name-row">
+            <td class="cell-label">
+              Display name
+              <span class="cell-hint">Shown to users; keys stay fixed</span>
+            </td>
+            {#each tierNames as tier (tier.key)}
+              {@const nameKey = `tier_${tier.key}_name`}
+              <td class="cell-input">
+                <input
+                  type="text"
+                  value={getSettingValue(nameKey) || DEFAULT_TIER_NAMES[tier.key]}
+                  oninput={(e) => setSettingValue(nameKey, (e.target as HTMLInputElement).value)}
+                  placeholder={DEFAULT_TIER_NAMES[tier.key]}
+                  class="tier-input"
+                />
+              </td>
+            {/each}
+          </tr>
           {#each limitRows as row}
             <tr>
               <td class="cell-label">
@@ -289,6 +322,25 @@
   .col-tier {
     text-align: center !important;
     min-width: 140px;
+  }
+
+  .col-tier-level {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  .col-tier-key {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+
+  .name-row td {
+    background: var(--color-surface);
   }
 
   .tiers-table td {
