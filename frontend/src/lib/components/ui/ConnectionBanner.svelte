@@ -5,7 +5,18 @@
   let expired = $state(false);
   let reachable = $state(true);
 
-  serverReachable.subscribe((v) => (reachable = v));
+  // Offline-view dismissal: user explicitly closed the "Connection
+  // lost" dialog to keep reading what was already loaded. A tiny
+  // corner pill stays visible so they don't forget, and the moment
+  // the server comes back we reopen the full dialog (well, it
+  // auto-hides since reachable flips to true and there's nothing
+  // left to show) and reset the dismissed flag.
+  let offlineDismissed = $state(false);
+
+  serverReachable.subscribe((v) => {
+    reachable = v;
+    if (v) offlineDismissed = false;
+  });
   sessionExpired.subscribe((v) => {
     expired = v;
     if (v) {
@@ -15,11 +26,29 @@
       }, 3000);
     }
   });
+
+  function dismissOffline() {
+    offlineDismissed = true;
+  }
+
+  function reopenOffline() {
+    offlineDismissed = false;
+  }
 </script>
 
-{#if !reachable}
+{#if !reachable && !offlineDismissed}
   <div class="overlay" role="alertdialog" aria-labelledby="conn-title" aria-describedby="conn-desc">
     <div class="card">
+      <button
+        type="button"
+        class="close"
+        onclick={dismissOffline}
+        aria-label="Close — keep reading offline"
+        title="Close — keep reading what's already loaded"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+
       <div class="icon" aria-hidden="true">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
           <path d="M2 8.82a15 15 0 0 1 20 0" />
@@ -35,8 +64,22 @@
       <p class="status" aria-live="polite">
         <span>Reconnecting</span><span class="dots" aria-hidden="true"><span>.</span><span>.</span><span>.</span></span>
       </p>
+
+      <button type="button" class="keep-reading" onclick={dismissOffline}>
+        Keep reading offline
+      </button>
     </div>
   </div>
+{:else if !reachable && offlineDismissed}
+  <!-- Persistent reminder pill so the user doesn't forget they're
+       offline. Clicking it reopens the full dialog. -->
+  <button type="button" class="offline-pill" onclick={reopenOffline} aria-label="You are offline — tap for details">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <path d="M2 8.82a15 15 0 0 1 20 0" />
+      <line x1="3" y1="3" x2="21" y2="21" />
+    </svg>
+    Offline
+  </button>
 {:else if expired}
   <div class="overlay" role="alertdialog" aria-labelledby="expired-title">
     <div class="card">
@@ -81,6 +124,7 @@
   }
 
   .card {
+    position: relative;
     background: var(--color-surface-raised);
     border-radius: var(--radius-xl);
     padding: var(--space-8);
@@ -89,6 +133,28 @@
     text-align: center;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
     animation: slideUp 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .close {
+    position: absolute;
+    top: 12px;
+    inset-inline-end: 12px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 9999px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .close:hover {
+    background: var(--color-surface);
+    color: var(--color-text);
   }
 
   .icon {
@@ -137,6 +203,51 @@
   @keyframes dot-pulse {
     0%, 60%, 100% { opacity: 0.2; }
     30% { opacity: 1; }
+  }
+
+  .keep-reading {
+    margin-block-start: var(--space-4);
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: 9999px;
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .keep-reading:hover {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-color: var(--color-text-tertiary);
+  }
+
+  /* Persistent offline indicator — small pill anchored to the
+     bottom so the user can tap it to reopen the dialog. */
+  .offline-pill {
+    position: fixed;
+    inset-block-end: 16px;
+    inset-inline-start: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: rgba(25, 28, 29, 0.92);
+    color: #fff;
+    border: none;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    z-index: 9998;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  }
+
+  .offline-pill:hover {
+    background: rgba(25, 28, 29, 1);
   }
 
   @media (prefers-reduced-motion: reduce) {
