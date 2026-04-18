@@ -101,8 +101,44 @@
     })
   );
 
+  // Nest subaccounts under their parent. Each parent is followed
+  // immediately by its child rows (in the same sort order), so the
+  // table reads like a tree. If the parent isn't in the visible set
+  // (filtered out, remote, whatever), orphan children fall back to
+  // rendering as top-level rows — no surprise empty gaps.
+  let groupedUsers = $derived.by(() => {
+    const byId = new Map(sortedUsers.map((u) => [u.id, u]));
+    const childrenOf = new Map<string, AdminUser[]>();
+    for (const u of sortedUsers) {
+      if (u.parent_identity_id && byId.has(u.parent_identity_id)) {
+        const list = childrenOf.get(u.parent_identity_id) ?? [];
+        list.push(u);
+        childrenOf.set(u.parent_identity_id, list);
+      }
+    }
+
+    const out: AdminUser[] = [];
+    const seen = new Set<string>();
+    for (const u of sortedUsers) {
+      if (u.parent_identity_id && byId.has(u.parent_identity_id)) continue;
+      if (seen.has(u.id)) continue;
+      out.push(u);
+      seen.add(u.id);
+      for (const child of childrenOf.get(u.id) ?? []) {
+        if (!seen.has(child.id)) {
+          out.push(child);
+          seen.add(child.id);
+        }
+      }
+    }
+    return out;
+  });
+
   let tableRows = $derived(
-    sortedUsers.map((u) => ({ ...u } as Record<string, unknown>))
+    groupedUsers.map((u) => ({
+      ...u,
+      is_subaccount: !!(u.parent_identity_id && groupedUsers.some((p) => p.id === u.parent_identity_id)),
+    } as Record<string, unknown>))
   );
 
   onMount(async () => {
@@ -435,8 +471,13 @@
     emptyMessage="No users found"
   >
     {#snippet rowContent(row)}
-      <td>
+      <td class:subaccount-row={row['is_subaccount']}>
         <div class="user-identity">
+          {#if row['is_subaccount']}
+            <!-- Angle marker indicating this row belongs to the
+                 account above it (bot/page/group attached to a user). -->
+            <span class="subaccount-angle" aria-hidden="true">&#x2937;</span>
+          {/if}
           {#if row['avatar_url']}
             <img src={row['avatar_url'] as string} alt="" class="user-avatar" />
           {:else}
@@ -1037,6 +1078,32 @@
     align-items: center;
     gap: 12px;
     padding: 4px 0;
+  }
+
+  .subaccount-row {
+    padding-inline-start: 28px;
+    position: relative;
+  }
+
+  .subaccount-row::before {
+    content: '';
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 14px;
+    width: 2px;
+    background: var(--color-border);
+  }
+
+  .subaccount-angle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    font-size: 1.05rem;
+    color: var(--color-text-tertiary);
+    margin-inline-end: -4px;
+    flex-shrink: 0;
+    line-height: 1;
   }
 
   .user-avatar {

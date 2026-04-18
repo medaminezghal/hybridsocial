@@ -387,6 +387,7 @@ export interface AdminUser {
   is_locked: boolean;
   is_local: boolean;
   domain: string | null;
+  parent_identity_id: string | null;
   is_suspended: boolean;
   is_silenced: boolean;
   is_shadow_banned: boolean;

@@ -2330,6 +2330,7 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
       trust_level: identity.trust_level,
       email: user && user.email,
       two_factor_enabled: (user && user.otp_enabled) || false,
+      parent_identity_id: Map.get(identity, :parent_identity_id),
       created_at: identity.inserted_at
     }
   end
