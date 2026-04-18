@@ -189,39 +189,6 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
     }
   end
 
-  # --- Flag (report forwarding) ---
-
-  @doc """
-  Build a Flag activity for an ActivityPub report forward. Signed
-  with the instance actor (reports are instance-to-instance, not
-  user-to-user — the reporter's identity stays out of the payload
-  per Mastodon convention).
-
-  `object` is a list of the reported account AP id plus the
-  reported post AP id (when present). `content` carries the
-  reporter's description. `to` is the reported actor so their
-  inbox can route correctly.
-  """
-  def build_flag(report, reported_actor_ap_id, post_ap_id \\ nil) do
-    alias Hybridsocial.Federation.InstanceActor
-
-    objects =
-      [reported_actor_ap_id, post_ap_id]
-      |> Enum.reject(&is_nil/1)
-
-    base = HybridsocialWeb.Endpoint.url()
-
-    %{
-      "@context" => @context,
-      "id" => "#{base}/flags/#{report.id}",
-      "type" => "Flag",
-      "actor" => InstanceActor.ap_id(),
-      "object" => objects,
-      "content" => report.description || "",
-      "to" => [reported_actor_ap_id]
-    }
-  end
-
   # --- Block ---
 
   def build_block(identity, target_ap_id) do
@@ -255,16 +222,31 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
 
   # --- Flag (Report) ---
 
-  def build_flag(reporter_identity, reported_ap_id, post_ap_ids \\ [], content \\ "") do
-    objects = [reported_ap_id | post_ap_ids]
+  @doc """
+  Build an AS Flag activity for forwarding a report to the reported
+  actor's origin instance. Signed with the instance actor (per
+  Mastodon/Pleroma convention — the reporter's identity stays out of
+  the payload so the remote side can't retaliate). `object` collects
+  the reported actor AP id plus the post AP id when there is one;
+  `content` carries the reporter's description; `to` addresses the
+  reported actor so their inbox knows how to route.
+  """
+  def build_flag(%Hybridsocial.Moderation.Report{} = report, reported_ap_id, post_ap_id)
+      when is_binary(reported_ap_id) do
+    alias Hybridsocial.Federation.InstanceActor
+
+    objects =
+      [reported_ap_id, post_ap_id]
+      |> Enum.reject(&is_nil/1)
 
     %{
       "@context" => @context,
-      "id" => activity_id(reporter_identity.id, "flag", extract_uuid_from_url(reported_ap_id)),
+      "id" => "#{base_url()}/flags/#{report.id}",
       "type" => "Flag",
-      "actor" => actor_url(reporter_identity),
+      "actor" => InstanceActor.ap_id(),
       "object" => objects,
-      "content" => content
+      "content" => report.description || "",
+      "to" => [reported_ap_id]
     }
   end
 
