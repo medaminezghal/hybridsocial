@@ -152,6 +152,22 @@ html {
 
 body {
   min-height: 100vh;
+  /* Soft mint wash radiating from the lower-center of the viewport
+     so the page doesn't read as pure white. The radial center sits
+     at y=90% (near the bottom) with the gradient fading to
+     transparent by ~70% of the radius — keeps the top of the page
+     clean for content while adding subtle life below. Fixed
+     attachment so the wash stays anchored to the viewport instead
+     of scrolling with the feed. */
+  background:
+    radial-gradient(
+      circle at 50% 90%,
+      #a5fff5 0%,
+      rgba(165, 255, 245, 0.55) 20%,
+      rgba(165, 255, 245, 0) 70%
+    ),
+    var(--color-background);
+  background-attachment: fixed;
 }
 
 h1, h2, h3, h4, h5, h6 {
