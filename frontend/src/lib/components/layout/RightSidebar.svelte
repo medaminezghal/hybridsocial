@@ -40,6 +40,12 @@
   }
   let newUsers: NewUser[] = $state([]);
 
+  // Instance metadata shown in the footer. Fetched from /instance/info
+  // so admins who configure a fork's source_url (or bump the version
+  // in mix.exs) don't need a frontend redeploy to see it.
+  let instanceVersion = $state<string | null>(null);
+  let instanceSourceUrl = $state<string>('https://github.com/qfiber/hybridsocial');
+
   let allPool = $derived([
     ...promotedUsers,
     ...suggestions.filter(s => !promotedUsers.some(p => p.handle === s.handle))
@@ -99,6 +105,18 @@
       followedTags = followedTagsData;
     } catch {
       // Sidebar is non-critical
+    }
+
+    // Instance meta for the footer. Non-blocking — if this 404s or
+    // errors, the footer just omits the version/source line.
+    try {
+      const info = await api.get<{ version?: string; source_url?: string }>(
+        '/api/v1/instance/info'
+      );
+      if (info?.version) instanceVersion = info.version;
+      if (info?.source_url) instanceSourceUrl = info.source_url;
+    } catch {
+      // ignore
     }
   });
 
@@ -284,7 +302,15 @@
       <span class="footer-dot" aria-hidden="true">&middot;</span>
       <a href="/legal/terms" class="footer-link">Terms</a>
     </nav>
-    <p class="footer-text">HybridSocial &middot; Decentralized Social</p>
+    <p class="footer-text">
+      <a href={instanceSourceUrl} target="_blank" rel="noopener noreferrer" class="footer-link">
+        <svg class="footer-gh-icon" width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+        HybridSocial
+      </a>
+      {#if instanceVersion}<span class="footer-version">v{instanceVersion}</span>{/if}
+    </p>
   </section>
 </aside>
 
@@ -883,8 +909,29 @@
   }
 
   .footer-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: var(--text-xs);
     color: var(--color-text-tertiary);
+  }
+
+  .footer-text .footer-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .footer-gh-icon {
+    vertical-align: -1px;
+  }
+
+  .footer-version {
+    font-family: var(--font-mono);
+    background: var(--color-surface);
+    padding: 1px 6px;
+    border-radius: var(--radius-full);
+    color: var(--color-text-secondary);
   }
 
   @media (max-width: 1280px) {

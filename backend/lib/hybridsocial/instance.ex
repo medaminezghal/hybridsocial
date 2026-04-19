@@ -6,6 +6,9 @@ defmodule Hybridsocial.Instance do
 
   @version "0.1.0"
 
+  @doc "Canonical version string. Kept in sync with mix.exs."
+  def version, do: @version
+
   @features [
     "mastodon_api",
     "mastodon_api_streaming",
