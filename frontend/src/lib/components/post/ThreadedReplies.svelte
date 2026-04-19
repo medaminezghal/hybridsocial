@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Post } from '$lib/api/types.js';
-  import { api } from '$lib/api/client.js';
   import PostCard from './PostCard.svelte';
 
   let {
@@ -58,25 +57,6 @@
     expandedChildren[postId] = !expandedChildren[postId];
   }
 
-  // Inline reply for root-level only
-  let replyContent = $state('');
-  let replySending = $state(false);
-
-  async function sendReply() {
-    if (!replyContent.trim() || replySending) return;
-    replySending = true;
-    try {
-      const result = await api.post<Post>('/api/v1/statuses', {
-        content: replyContent,
-        parent_id: rootPostId,
-        visibility: 'public',
-      });
-      replyContent = '';
-      window.dispatchEvent(new CustomEvent('new-post', { detail: result }));
-    } catch { /* */ }
-    finally { replySending = false; }
-  }
-
   function countAllChildren(node: ReplyNode): number {
     let count = node.children.length;
     for (const child of node.children) count += countAllChildren(child);
@@ -88,20 +68,6 @@
   {#each tree as node, i (node.post.id)}
     {@render replyNode(node, i < tree.length - 1)}
   {/each}
-
-  <!-- Inline reply bar -->
-  <div class="inline-reply-bar">
-    <input
-      type="text"
-      class="inline-reply-input"
-      placeholder="Write a reply..."
-      bind:value={replyContent}
-      onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
-    />
-    <button type="button" class="inline-reply-send" onclick={sendReply} disabled={replySending || !replyContent.trim()}>
-      <span class="material-symbols-outlined">send</span>
-    </button>
-  </div>
 </div>
 
 {#snippet replyNode(node: ReplyNode, hasSiblingsBelow: boolean)}
@@ -302,59 +268,4 @@
     text-decoration: underline;
   }
 
-  /* ---- Inline reply bar ---- */
-  .inline-reply-bar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px 16px;
-    margin-block-start: 8px;
-    background: var(--color-surface-container-lowest);
-    border: 1px solid var(--color-border);
-    border-radius: 14px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  }
-
-  .inline-reply-input {
-    flex: 1;
-    padding: 10px 16px;
-    border: 1px solid var(--color-border);
-    border-radius: 22px;
-    background: var(--color-surface);
-    color: var(--color-text);
-    font-size: 0.9375rem;
-    outline: none;
-    transition: border-color 150ms ease, box-shadow 150ms ease;
-  }
-
-  .inline-reply-input:focus {
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px var(--color-primary-soft, rgba(0, 128, 128, 0.1));
-  }
-
-  .inline-reply-send {
-    background: var(--color-primary);
-    border: none;
-    color: white;
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: opacity 150ms ease;
-  }
-
-  .inline-reply-send:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-
-  .inline-reply-send:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
-  .inline-reply-send .material-symbols-outlined {
-    font-size: 20px;
-  }
 </style>
