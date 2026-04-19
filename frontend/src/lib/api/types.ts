@@ -109,6 +109,15 @@ export interface Post {
   is_bookmarked: boolean;
   is_muted: boolean;
   current_user_reaction: string | null;
+  // Admin-moderation flags. Present on admin-serialized posts and
+  // when the viewer is staff; otherwise null. The regular post
+  // serializer drops these since non-staff users don't need to know.
+  hidden_at?: string | null;
+  replies_locked_at?: string | null;
+  // Denormalized pending-report count. Only included by the backend
+  // for staff viewers; undefined for everyone else. Drives the
+  // numeric badge on the admin moderation shield.
+  open_report_count?: number;
   // Client-only flag set by the composer when it inserts an
   // optimistic post into a feed. Cleared when the server response
   // comes back via the post-replace event.

@@ -454,7 +454,7 @@ export function deleteMediaHashBan(id: string): Promise<void> {
 }
 
 export function banMediaFromPost(postId: string): Promise<void> {
-  return api.post(`/api/v1/admin/statuses/${postId}/ban_media`);
+  return api.post(`/api/v1/admin/media_hash_bans/from_post/${postId}`);
 }
 
 // Instance Purge
@@ -468,19 +468,39 @@ export function purgeInstanceContent(policyId: string): Promise<void> {
 
 // Admin Post Actions
 export function adminGetPost(id: string): Promise<Record<string, unknown>> {
-  return api.get(`/api/v1/admin/statuses/${id}`);
+  return api.get(`/api/v1/admin/posts/${id}`);
 }
 
 export function adminDeletePost(id: string, reason?: string): Promise<void> {
-  return api.delete(`/api/v1/admin/statuses/${id}`, { reason });
+  return api.delete(`/api/v1/admin/posts/${id}`, reason ? { reason } : undefined);
 }
 
 export function adminForceSensitive(id: string): Promise<void> {
-  return api.post(`/api/v1/admin/statuses/${id}/force_sensitive`);
+  return api.post(`/api/v1/admin/posts/${id}/sensitive`);
 }
 
 export function adminRemoveSensitive(id: string): Promise<void> {
-  return api.post(`/api/v1/admin/statuses/${id}/remove_sensitive`);
+  return api.post(`/api/v1/admin/posts/${id}/unsensitive`);
+}
+
+export function adminHidePost(id: string): Promise<void> {
+  return api.post(`/api/v1/admin/posts/${id}/hide`);
+}
+
+export function adminUnhidePost(id: string): Promise<void> {
+  return api.post(`/api/v1/admin/posts/${id}/unhide`);
+}
+
+export function adminLockReplies(id: string): Promise<void> {
+  return api.post(`/api/v1/admin/posts/${id}/lock_replies`);
+}
+
+export function adminUnlockReplies(id: string): Promise<void> {
+  return api.post(`/api/v1/admin/posts/${id}/unlock_replies`);
+}
+
+export function adminRefetchPost(id: string): Promise<void> {
+  return api.post(`/api/v1/admin/posts/${id}/refetch`);
 }
 
 // Account Actions
@@ -545,6 +565,62 @@ export function assignUserRole(
 // a legacy name.
 export function revokeUserRole(userId: string, identityRoleId: string): Promise<void> {
   return api.delete(`/api/v1/admin/users/${userId}/roles/${identityRoleId}`);
+}
+
+// ── Admin post detail ────────────────────────────────────────────────
+
+export interface AdminPostDetail {
+  id: string;
+  content: string;
+  content_html: string | null;
+  post_type: string;
+  visibility: string;
+  sensitive: boolean;
+  spoiler_text: string | null;
+  language: string | null;
+  identity_id: string | null;
+  parent_id: string | null;
+  root_id: string | null;
+  quote_id: string | null;
+  ap_id: string | null;
+  reply_count: number;
+  boost_count: number;
+  reaction_count: number;
+  is_pinned: boolean;
+  published_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  hidden_at: string | null;
+  replies_locked_at: string | null;
+  created_at: string;
+  identity: { id: string; handle: string; display_name: string | null } | null;
+  media: Array<{
+    id: string;
+    content_type: string;
+    alt_text: string | null;
+    storage_path: string | null;
+    remote_url: string | null;
+  }>;
+  reports: Array<{
+    id: string;
+    category: string;
+    comment: string | null;
+    status: string;
+    created_at: string;
+    reporter: { id: string; handle: string; display_name: string | null } | null;
+  }>;
+  audit_log: Array<{
+    id: string;
+    action: string;
+    details: Record<string, unknown> | null;
+    created_at: string;
+    actor: { id: string; handle: string; display_name: string | null } | null;
+  }>;
+  author_pending_reports: number;
+}
+
+export function getAdminPost(id: string): Promise<AdminPostDetail> {
+  return api.get<{ data: AdminPostDetail }>(`/api/v1/admin/posts/${id}`).then((r) => r.data);
 }
 
 // ── Email templates ──────────────────────────────────────────────────

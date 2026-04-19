@@ -206,9 +206,14 @@
   };
 
   function handleMessage() {
-    if (account) {
-      window.location.href = `/messages?to=${account.handle}`;
-    }
+    if (!account) return;
+    // Remote accounts carry `@host` in `acct`; locals don't. The
+    // new-conversation page reads `?to=` and resolves against whichever
+    // form it gets. Use the fully-qualified handle when available so
+    // DMs to @alice@mastodon.social find the right identity.
+    const a = account as { acct?: string; handle: string };
+    const handle = a.acct || a.handle;
+    window.location.href = `/messages/new?to=${encodeURIComponent(handle)}`;
   }
 
   function handleEdit() {

@@ -1920,7 +1920,7 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
     with :ok <- require_permission(conn, "content.manage") do
       case Posts.admin_get_post(id) do
         {:ok, post} ->
-          conn |> put_status(:ok) |> json(%{data: serialize_post(post)})
+          conn |> put_status(:ok) |> json(%{data: serialize_admin_post_detail(post)})
 
         {:error, :not_found} ->
           conn |> put_status(:not_found) |> json(%{error: "post.not_found"})
@@ -1928,6 +1928,81 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
     else
       {:error, perm} -> deny(conn, perm)
     end
+  end
+
+  # Richer payload for /admin/posts/:id — bundles everything the
+  # admin detail page needs in one round-trip: post + author summary,
+  # media attachments, reports filed against this post, audit log
+  # entries referencing it, and a count of still-pending reports
+  # against the same author (so the admin can spot repeat patterns
+  # without clicking through).
+  defp serialize_admin_post_detail(post) do
+    import Ecto.Query
+
+    post = Hybridsocial.Repo.preload(post, [:media_attachments, :identity])
+
+    base = serialize_post(post)
+
+    reports =
+      Hybridsocial.Moderation.Report
+      |> where([r], r.target_type == "post" and r.target_id == ^post.id)
+      |> order_by([r], desc: r.inserted_at)
+      |> Hybridsocial.Repo.all()
+      |> Hybridsocial.Repo.preload(:reporter)
+
+    audit_entries =
+      Hybridsocial.Moderation.AuditLog
+      |> where([a], a.target_type == "post" and a.target_id == ^post.id)
+      |> order_by([a], desc: a.created_at)
+      |> limit(50)
+      |> Hybridsocial.Repo.all()
+      |> Hybridsocial.Repo.preload(:actor)
+
+    author_pending_reports =
+      if post.identity_id do
+        Hybridsocial.Moderation.Report
+        |> where([r], r.reported_id == ^post.identity_id and r.status == "pending")
+        |> Hybridsocial.Repo.aggregate(:count)
+      else
+        0
+      end
+
+    Map.merge(base, %{
+      media:
+        Enum.map(post.media_attachments || [], fn m ->
+          %{
+            id: m.id,
+            content_type: m.content_type,
+            alt_text: m.alt_text,
+            storage_path: m.storage_path,
+            remote_url: m.remote_url
+          }
+        end),
+      reports: Enum.map(reports, &serialize_post_report/1),
+      audit_log: Enum.map(audit_entries, &serialize_post_audit_entry/1),
+      author_pending_reports: author_pending_reports
+    })
+  end
+
+  defp serialize_post_report(report) do
+    %{
+      id: report.id,
+      category: report.category,
+      comment: report.comment,
+      status: report.status,
+      created_at: report.inserted_at,
+      reporter: serialize_audit_actor(report.reporter)
+    }
+  end
+
+  defp serialize_post_audit_entry(entry) do
+    %{
+      id: entry.id,
+      action: entry.action,
+      details: entry.details,
+      created_at: entry.created_at,
+      actor: serialize_audit_actor(entry.actor)
+    }
   end
 
   def delete_post(conn, %{"id" => id} = params) do
@@ -1963,6 +2038,112 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
 
         {:error, _} ->
           conn |> put_status(:unprocessable_entity) |> json(%{error: "post.update_failed"})
+      end
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  def hide_post(conn, %{"id" => id}) do
+    with :ok <- require_permission(conn, "content.manage") do
+      admin_id = conn.assigns.current_identity.id
+
+      case Posts.admin_hide_post(id, admin_id) do
+        {:ok, post} ->
+          conn |> put_status(:ok) |> json(%{data: serialize_post(post)})
+
+        {:error, :not_found} ->
+          conn |> put_status(:not_found) |> json(%{error: "post.not_found"})
+
+        {:error, _} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: "post.update_failed"})
+      end
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  def unhide_post(conn, %{"id" => id}) do
+    with :ok <- require_permission(conn, "content.manage") do
+      admin_id = conn.assigns.current_identity.id
+
+      case Posts.admin_unhide_post(id, admin_id) do
+        {:ok, post} ->
+          conn |> put_status(:ok) |> json(%{data: serialize_post(post)})
+
+        {:error, :not_found} ->
+          conn |> put_status(:not_found) |> json(%{error: "post.not_found"})
+
+        {:error, _} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: "post.update_failed"})
+      end
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  def lock_replies(conn, %{"id" => id}) do
+    with :ok <- require_permission(conn, "content.manage") do
+      admin_id = conn.assigns.current_identity.id
+
+      case Posts.admin_lock_replies(id, admin_id) do
+        {:ok, post} ->
+          conn |> put_status(:ok) |> json(%{data: serialize_post(post)})
+
+        {:error, :not_found} ->
+          conn |> put_status(:not_found) |> json(%{error: "post.not_found"})
+
+        {:error, _} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: "post.update_failed"})
+      end
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  def unlock_replies(conn, %{"id" => id}) do
+    with :ok <- require_permission(conn, "content.manage") do
+      admin_id = conn.assigns.current_identity.id
+
+      case Posts.admin_unlock_replies(id, admin_id) do
+        {:ok, post} ->
+          conn |> put_status(:ok) |> json(%{data: serialize_post(post)})
+
+        {:error, :not_found} ->
+          conn |> put_status(:not_found) |> json(%{error: "post.not_found"})
+
+        {:error, _} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: "post.update_failed"})
+      end
+    else
+      {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  def refetch_post(conn, %{"id" => id}) do
+    with :ok <- require_permission(conn, "content.manage") do
+      admin_id = conn.assigns.current_identity.id
+
+      case Posts.admin_refetch_post(id, admin_id) do
+        {:ok, post} ->
+          conn |> put_status(:ok) |> json(%{data: serialize_post(post)})
+
+        {:error, :not_found} ->
+          conn |> put_status(:not_found) |> json(%{error: "post.not_found"})
+
+        {:error, :not_remote} ->
+          conn |> put_status(:unprocessable_entity) |> json(%{error: "post.not_remote"})
+
+        {:error, :domain_suspended} ->
+          conn |> put_status(:forbidden) |> json(%{error: "post.origin_suspended"})
+
+        {:error, :gone} ->
+          conn |> put_status(:gone) |> json(%{error: "post.origin_gone"})
+
+        {:error, reason} ->
+          conn
+          |> put_status(:bad_gateway)
+          |> json(%{error: "post.refetch_failed", details: inspect(reason)})
       end
     else
       {:error, perm} -> deny(conn, perm)
@@ -2331,6 +2512,8 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
       published_at: post.published_at,
       edited_at: post.edited_at,
       deleted_at: post.deleted_at,
+      hidden_at: post.hidden_at,
+      replies_locked_at: post.replies_locked_at,
       created_at: post.inserted_at,
       identity:
         if(Ecto.assoc_loaded?(post.identity) && post.identity,

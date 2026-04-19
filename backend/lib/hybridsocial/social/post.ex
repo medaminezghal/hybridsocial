@@ -23,6 +23,10 @@ defmodule Hybridsocial.Social.Post do
     field :reply_count, :integer, default: 0
     field :boost_count, :integer, default: 0
     field :reaction_count, :integer, default: 0
+    # Denormalized pending-reports count. Maintained by the Moderation
+    # context on report create/resolve/dismiss. Only surfaced to
+    # staff-gated UI — regular users don't see it on their timeline.
+    field :open_report_count, :integer, default: 0
     field :is_pinned, :boolean, default: false
 
     field :ap_id, :string
@@ -34,6 +38,23 @@ defmodule Hybridsocial.Social.Post do
     field :published_at, :utc_datetime_usec
     field :expires_at, :utc_datetime_usec
     field :deleted_at, :utc_datetime_usec
+
+    # Thread-bump timestamp. Initialized to `published_at` on insert
+    # and bumped to `now()` whenever a reply lands on this post or
+    # any of its descendants. Timelines order by this instead of
+    # `published_at` so threads with new activity surface back up.
+    # Intentionally NOT touched on edits — typo fixes shouldn't
+    # promote an old post.
+    field :last_activity_at, :utc_datetime_usec
+
+    # Admin-moderation flags. `hidden_at` drops the post from public
+    # timelines without deleting it (permalink still resolves).
+    # `replies_locked_at` rejects new replies against this post or
+    # its descendants (checked at reply-create time).
+    field :hidden_at, :utc_datetime_usec
+    field :hidden_by, Ecto.UUID
+    field :replies_locked_at, :utc_datetime_usec
+    field :replies_locked_by, Ecto.UUID
 
     belongs_to :identity, Hybridsocial.Accounts.Identity
     belongs_to :parent, __MODULE__
@@ -78,7 +99,8 @@ defmodule Hybridsocial.Social.Post do
       :identity_id,
       :scheduled_at,
       :ap_id,
-      :parent_ap_id
+      :parent_ap_id,
+      :last_activity_at
     ])
     |> validate_required([:identity_id])
     |> validate_inclusion(:visibility, @valid_visibilities)
@@ -120,8 +142,12 @@ defmodule Hybridsocial.Social.Post do
   match on the result.
   """
   def publish_changeset(post, published_at) do
+    # Stamp last_activity_at alongside published_at so the newly-
+    # published scheduled post lands in the correct spot on the
+    # timeline instead of surfacing wherever its (nil) last_activity_at
+    # happened to sort.
     post
-    |> change(published_at: published_at)
+    |> change(published_at: published_at, last_activity_at: published_at)
   end
 
   defp validate_content_for_type(changeset) do

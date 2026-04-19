@@ -26,9 +26,44 @@ defmodule Hybridsocial.Moderation do
   # ── Reports ──────────────────────────────────────────────────────────
 
   def create_report(reporter_id, attrs) do
-    %Report{}
-    |> Report.changeset(Map.put(attrs, "reporter_id", reporter_id))
-    |> Repo.insert()
+    result =
+      %Report{}
+      |> Report.changeset(Map.put(attrs, "reporter_id", reporter_id))
+      |> Repo.insert()
+
+    with {:ok, report} <- result do
+      # Keep the denormalized open-report counter on posts in sync so
+      # the admin moderation shield badge is O(1) to read on timeline
+      # fetches. Non-post reports (account reports) are tracked via
+      # the reports index and don't need the counter.
+      if report.target_type == "post" and is_binary(report.target_id) do
+        bump_post_open_report_count(report.target_id, 1)
+      end
+    end
+
+    result
+  end
+
+  defp bump_post_open_report_count(post_id, delta) when is_integer(delta) do
+    # GREATEST(..., 0) clamps the count so a stale state (e.g. a
+    # backfill that missed a row, or manual SQL surgery in ops) can't
+    # drive it negative after a resolve.
+    from(p in Hybridsocial.Social.Post,
+      where: p.id == ^post_id,
+      update: [
+        set: [
+          open_report_count:
+            fragment(
+              "GREATEST(COALESCE(?, 0) + ?, 0)",
+              p.open_report_count,
+              ^delta
+            )
+        ]
+      ]
+    )
+    |> Repo.update_all([])
+
+    :ok
   end
 
   def get_report(id) do
@@ -88,6 +123,8 @@ defmodule Hybridsocial.Moderation do
         {:error, :not_found}
 
       report ->
+        was_pending? = report.status == "pending"
+
         Ecto.Multi.new()
         |> Ecto.Multi.update(:report, Report.resolve_changeset(report, action_taken))
         |> Ecto.Multi.run(:audit, fn _repo, _changes ->
@@ -95,8 +132,16 @@ defmodule Hybridsocial.Moderation do
         end)
         |> Repo.transaction()
         |> case do
-          {:ok, %{report: report}} -> {:ok, report}
-          {:error, _, changeset, _} -> {:error, changeset}
+          {:ok, %{report: resolved}} ->
+            if was_pending? and resolved.target_type == "post" and
+                 is_binary(resolved.target_id) do
+              bump_post_open_report_count(resolved.target_id, -1)
+            end
+
+            {:ok, resolved}
+
+          {:error, _, changeset, _} ->
+            {:error, changeset}
         end
     end
   end
@@ -107,6 +152,8 @@ defmodule Hybridsocial.Moderation do
         {:error, :not_found}
 
       report ->
+        was_pending? = report.status == "pending"
+
         Ecto.Multi.new()
         |> Ecto.Multi.update(:report, Report.dismiss_changeset(report))
         |> Ecto.Multi.run(:audit, fn _repo, _changes ->
@@ -114,8 +161,16 @@ defmodule Hybridsocial.Moderation do
         end)
         |> Repo.transaction()
         |> case do
-          {:ok, %{report: report}} -> {:ok, report}
-          {:error, _, changeset, _} -> {:error, changeset}
+          {:ok, %{report: dismissed}} ->
+            if was_pending? and dismissed.target_type == "post" and
+                 is_binary(dismissed.target_id) do
+              bump_post_open_report_count(dismissed.target_id, -1)
+            end
+
+            {:ok, dismissed}
+
+          {:error, _, changeset, _} ->
+            {:error, changeset}
         end
     end
   end

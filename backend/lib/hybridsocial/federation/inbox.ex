@@ -367,6 +367,12 @@ defmodule Hybridsocial.Federation.Inbox do
             notify_remote_reply(post, parent_id)
             notify_remote_quote(post, ap_object)
 
+            # Thread-bump the ancestors if we linked a local parent —
+            # same semantics as local reply creation in Posts.create_post.
+            # Without this, a reply from federation wouldn't surface the
+            # local thread back to the top of Explore.
+            if parent_id, do: Posts.bump_thread_activity_public(post)
+
           _ ->
             :ok
         end
@@ -1277,6 +1283,11 @@ defmodule Hybridsocial.Federation.Inbox do
     changeset
     |> Ecto.Changeset.put_change(:published_at, published_at)
     |> Ecto.Changeset.put_change(:edit_expires_at, edit_expires)
+    # Remote posts arrive with their authoring timestamp; seed
+    # `last_activity_at` with it so the thread sorts in its natural
+    # chronological slot. Replies to known local roots will bump those
+    # roots separately below.
+    |> Ecto.Changeset.put_change(:last_activity_at, published_at)
   end
 
   defp normalize_object(%{"id" => id}) when is_binary(id), do: %{"id" => id}

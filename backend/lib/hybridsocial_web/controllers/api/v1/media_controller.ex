@@ -30,32 +30,8 @@ defmodule HybridsocialWeb.Api.V1.MediaController do
       |> put_status(:request_entity_too_large)
       |> json(%{error: "media.file_too_large", max_mb: max_mb})
     else
-      case Media.upload(identity_id, upload, alt_text) do
-        {:ok, media} ->
-          conn
-          |> put_status(:created)
-          |> json(render_media(media))
-
-        {:error, :invalid_content_type} ->
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: "media.invalid_content_type"})
-
-        {:error, :file_too_large} ->
-          conn
-          |> put_status(:request_entity_too_large)
-          |> json(%{error: "media.file_too_large"})
-
-        {:error, changeset} when is_struct(changeset, Ecto.Changeset) ->
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: "media.upload_failed", details: format_errors(changeset)})
-
-        {:error, _reason} ->
-          conn
-          |> put_status(:unprocessable_entity)
-          |> json(%{error: "media.upload_failed"})
-      end
+      result = Media.upload(identity_id, upload, alt_text)
+      render_upload_result(conn, result, identity_id, content_type, file_size)
     end
   end
 
@@ -63,6 +39,65 @@ defmodule HybridsocialWeb.Api.V1.MediaController do
     conn
     |> put_status(:bad_request)
     |> json(%{error: "media.file_required"})
+  end
+
+  # Split out so credo's cyclomatic-complexity cap stays under 15 —
+  # each error clause counts as a branch.
+  defp render_upload_result(conn, {:ok, media}, _identity_id, _content_type, _file_size) do
+    conn |> put_status(:created) |> json(render_media(media))
+  end
+
+  defp render_upload_result(conn, {:error, :invalid_content_type}, _, _, _) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "media.invalid_content_type"})
+  end
+
+  defp render_upload_result(conn, {:error, :file_too_large}, _, _, _) do
+    conn |> put_status(:request_entity_too_large) |> json(%{error: "media.file_too_large"})
+  end
+
+  # ClamAV matched a signature. Log + rate-limit-track + tell the
+  # uploader specifically — a generic "upload failed" hides the fact
+  # that their file was infected, which might mean their machine is
+  # compromised.
+  defp render_upload_result(
+         conn,
+         {:error, {:infected, signature}},
+         identity_id,
+         content_type,
+         file_size
+       ) do
+    Hybridsocial.Media.InfectedTracker.record(identity_id, signature, content_type, file_size)
+
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: "media.infected",
+      signature: signature,
+      message:
+        "This file was rejected because our antivirus scanner flagged it as infected. If you believe this is a false positive, contact the instance admins."
+    })
+  end
+
+  # Scanner configured but unreachable. Fail-closed — don't let
+  # unscanned bytes through — but tell the caller it's a service
+  # issue, not their file.
+  defp render_upload_result(conn, {:error, :unreachable}, _, _, _) do
+    conn
+    |> put_status(:service_unavailable)
+    |> json(%{
+      error: "media.scanner_unreachable",
+      message: "The antivirus scanner is currently unavailable. Please try again shortly."
+    })
+  end
+
+  defp render_upload_result(conn, {:error, %Ecto.Changeset{} = changeset}, _, _, _) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "media.upload_failed", details: format_errors(changeset)})
+  end
+
+  defp render_upload_result(conn, {:error, _reason}, _, _, _) do
+    conn |> put_status(:unprocessable_entity) |> json(%{error: "media.upload_failed"})
   end
 
   @doc """

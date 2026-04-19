@@ -3,8 +3,10 @@ defmodule HybridsocialWeb.MediaProxyController do
 
   alias Hybridsocial.Antivirus
   alias Hybridsocial.Federation.InstancePolicy
+  alias Hybridsocial.Media.InfectedTracker
   alias Hybridsocial.Media.MediaProxy
   alias Hybridsocial.Media.MediaProxyCache
+  alias Hybridsocial.Media.PlaceholderSvg
   alias Hybridsocial.Repo
 
   require Logger
@@ -87,14 +89,45 @@ defmodule HybridsocialWeb.MediaProxyController do
   defp handle_error(conn, :instance_blocked),
     do: conn |> put_status(403) |> json(%{error: "Origin instance is blocked"})
 
+  # Infected remote media: log, record for audit/trending (no
+  # identity — it's a federated stranger, not one of our users), then
+  # serve a friendly "content removed" SVG in place of the bytes.
+  # Served as 200 image/svg+xml so <img> renders the placeholder
+  # inline instead of showing a broken-image icon; a 4xx here would
+  # look like the server itself failed.
   defp handle_error(conn, {:infected, signature_name}) do
     Logger.warning("Media proxy refused infected payload signature=#{signature_name}")
-    conn |> put_status(403) |> json(%{error: "Content rejected by antivirus scan"})
+    InfectedTracker.record(nil, signature_name, "proxy", 0)
+    send_placeholder(conn, PlaceholderSvg.infected())
+  end
+
+  # Scanner down: fail-closed at the byte level, but still render a
+  # recognisable placeholder so the consumer's UI doesn't look broken.
+  defp handle_error(conn, :av_unreachable) do
+    Logger.warning("Media proxy refused payload — antivirus scanner unreachable")
+    send_placeholder(conn, PlaceholderSvg.scanner_unreachable())
+  end
+
+  defp handle_error(conn, {:av_error, inner}) do
+    Logger.warning("Media proxy refused payload — antivirus error: #{inspect(inner)}")
+    send_placeholder(conn, PlaceholderSvg.scanner_unreachable())
   end
 
   defp handle_error(conn, reason) do
     Logger.warning("Media proxy fetch failed: #{inspect(reason)}")
     conn |> put_status(502) |> json(%{error: "Failed to fetch remote media"})
+  end
+
+  # sobelow_skip ["XSS.SendResp"]
+  defp send_placeholder(conn, svg) do
+    # Safe: the SVG body is produced entirely by PlaceholderSvg which
+    # escapes every interpolation. No user input reaches the body.
+    conn
+    |> put_resp_header("content-type", "image/svg+xml; charset=utf-8")
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("x-content-type-options", "nosniff")
+    |> put_resp_header("content-security-policy", "default-src 'none'")
+    |> send_resp(200, svg)
   end
 
   # Refuse to proxy from instances we've explicitly suspended or

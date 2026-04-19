@@ -41,7 +41,10 @@
   let reactionDetailLoading = $state(false);
   let reactionDetailTab = $state('all');
   let reactions = $state(post.reactions || []);
-  let isPostMuted = $state(false);
+  // Seed from the server-provided flag so admins who already muted
+  // a thread see "Unmute notifications" on first render, not the
+  // stale "Mute notifications" that assumes every post is un-muted.
+  let isPostMuted = $state(!!post.is_muted);
 
   onMount(() => {
     function handleReplyCount(e: Event) {
@@ -64,9 +67,14 @@
     return acct.includes('@');
   });
 
-  let remotePostUrl = $derived(() => {
-    return post.account.url;
-  });
+  // `post.url` is the user-facing URL on the origin instance (e.g.
+  // `https://mastodon.social/@alice/12345`). `post.uri` is the AP id
+  // — fine as a fallback but looks uglier in the address bar. The
+  // previous implementation used `post.account.url`, which is the
+  // author's profile page, not the post — "Display on original
+  // instance" would take you to the user's timeline instead of the
+  // specific post you clicked.
+  let remotePostUrl = $derived(post.url || post.uri || '');
 
   // Confirmation dialog state
   let confirmAction: 'mute_user' | 'unmute_user' | 'block_user' | 'unblock_user' | null = $state(null);
@@ -346,11 +354,8 @@
   function handleDisplayOnInstance(e: MouseEvent) {
     e.stopPropagation();
     showMoreMenu = false;
-    const url = post.account.url;
-    if (url) {
-      // Construct the post URL on the remote instance from the actor URL
-      const origin = new URL(url).origin;
-      window.open(url, '_blank', 'noopener,noreferrer');
+    if (remotePostUrl) {
+      window.open(remotePostUrl, '_blank', 'noopener,noreferrer');
     }
   }
 
@@ -382,7 +387,13 @@
   function handleChatWithUser(e: MouseEvent) {
     e.stopPropagation();
     showMoreMenu = false;
-    window.location.href = `/messages?to=${post.account.handle}`;
+    // Route to /messages/new with the recipient pre-filled. The
+    // new-conversation page reads `?to=` on mount, resolves the
+    // handle, and either starts a conversation or falls through to
+    // a direct post (for peers that don't speak DMs) — the same flow
+    // users get via the "Message" button on a profile page.
+    const handle = post.account.acct || post.account.handle;
+    window.location.href = `/messages/new?to=${encodeURIComponent(handle)}`;
   }
 
   function handleMuteUser(e: MouseEvent) {

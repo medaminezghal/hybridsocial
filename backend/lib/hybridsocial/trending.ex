@@ -65,10 +65,15 @@ defmodule Hybridsocial.Trending do
 
     post_ids = Enum.map(trending, & &1.target_id)
 
+    # Exclude hidden posts at read time too, not just at compute
+    # time — a post that got admin-hidden after trending was computed
+    # should disappear from the feed immediately without waiting for
+    # the next compute tick (5 min default).
     posts =
       Post
       |> where([p], p.id in ^post_ids)
       |> where([p], is_nil(p.deleted_at))
+      |> where([p], is_nil(p.hidden_at))
       |> Repo.all()
       |> Repo.preload(:identity)
       |> Map.new(&{&1.id, &1})
@@ -259,6 +264,11 @@ defmodule Hybridsocial.Trending do
     results =
       Post
       |> where([p], is_nil(p.deleted_at))
+      # Admin-hidden posts drop out of Explore/global timelines, so
+      # they should drop out of trending too — otherwise a
+      # hidden-but-still-engaging post could surface on /explore via
+      # the trending row.
+      |> where([p], is_nil(p.hidden_at))
       |> where([p], p.visibility == "public")
       |> where([p], p.published_at >= ^cutoff)
       |> join(:left, [p], r in "reactions", on: r.post_id == p.id and r.inserted_at >= ^cutoff)
@@ -339,7 +349,9 @@ defmodule Hybridsocial.Trending do
       Hashtag
       |> join(:inner, [h], ph in "post_hashtags", on: ph.hashtag_id == h.id)
       |> join(:inner, [_h, ph], p in Post,
-        on: p.id == ph.post_id and p.inserted_at >= ^cutoff and is_nil(p.deleted_at)
+        on:
+          p.id == ph.post_id and p.inserted_at >= ^cutoff and is_nil(p.deleted_at) and
+            is_nil(p.hidden_at)
       )
       |> group_by([h, _ph, _p], [h.id, h.name])
       |> select([h, _ph, p], %{

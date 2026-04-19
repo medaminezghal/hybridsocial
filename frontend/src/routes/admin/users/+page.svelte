@@ -152,6 +152,16 @@
   );
 
   onMount(async () => {
+    // Seed the search input from `?search=<handle>` — lets other
+    // admin pages (e.g. the post-detail right-rail, the post moderation
+    // menu's "View author in admin") deep-link here with the user
+    // pre-filtered. Strip a leading `@` so handles pasted with or
+    // without the sigil both resolve cleanly.
+    if (typeof window !== 'undefined') {
+      const q = new URL(window.location.href).searchParams.get('search');
+      if (q) search = q.replace(/^@/, '');
+    }
+
     await loadUsers();
   });
 

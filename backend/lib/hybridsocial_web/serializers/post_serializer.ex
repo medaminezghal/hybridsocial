@@ -24,6 +24,13 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
 
   def serialize(post, opts) do
     current_identity_id = Keyword.get(opts, :current_identity_id)
+    # Compute staff flag once per call. Cheap (single roles lookup);
+    # callers in `serialize_many` precompute and pass via opts to
+    # avoid N lookups across a batch.
+    is_staff? =
+      Keyword.get_lazy(opts, :is_staff, fn ->
+        current_identity_id && Hybridsocial.Auth.RBAC.staff?(current_identity_id)
+      end)
 
     badges =
       Hybridsocial.Badges.badges_for_post(
@@ -116,6 +123,22 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
       reactions: reactions,
       media_attachments: media_attachments
     }
+    |> maybe_put_staff_fields(post, is_staff?)
+  end
+
+  # Staff-only fields: things that leak moderation signal to regular
+  # users (pending-report counts, admin-hidden, reply-lock) are only
+  # included when the viewer has staff. Defaults apply on the client
+  # side for everyone else.
+  defp maybe_put_staff_fields(payload, _post, false), do: payload
+  defp maybe_put_staff_fields(payload, _post, nil), do: payload
+
+  defp maybe_put_staff_fields(payload, post, _is_staff) do
+    Map.merge(payload, %{
+      open_report_count: post.open_report_count || 0,
+      hidden_at: Map.get(post, :hidden_at),
+      replies_locked_at: Map.get(post, :replies_locked_at)
+    })
   end
 
   @doc """
@@ -123,6 +146,14 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
   """
   def serialize_many(posts, opts \\ []) do
     current_identity_id = Keyword.get(opts, :current_identity_id)
+
+    is_staff? =
+      current_identity_id && Hybridsocial.Auth.RBAC.staff?(current_identity_id)
+
+    # Thread through to `serialize/2` for quote preloads so a quoted
+    # post also picks up staff fields without doing a second RBAC
+    # lookup per item.
+    opts = Keyword.put(opts, :is_staff, is_staff?)
     post_ids = Enum.map(posts, & &1.id)
 
     # Batch load user state
@@ -207,6 +238,7 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
         reactions: Map.get(reactions_breakdown, post.id, []),
         media_attachments: Map.get(media_by_post, post.id, [])
       }
+      |> maybe_put_staff_fields(post, is_staff?)
     end)
   end
 

@@ -50,12 +50,37 @@ defmodule Hybridsocial.Social.Posts do
       %Post{}
       |> Post.create_changeset(post_attrs, char_limit: limits[:char_limit] || 5000)
       |> Ecto.Changeset.put_change(:published_at, published_at)
+      # Scheduled posts (published_at = nil) get their last_activity_at
+      # stamped by the scheduled-post worker at actual publish time;
+      # immediate posts get it now.
+      |> Ecto.Changeset.put_change(:last_activity_at, published_at)
       |> maybe_put_edit_expires_at(edit_expires_at)
 
-    with :ok <- validate_premium_emojis(attrs["content"], identity) do
+    with :ok <- validate_premium_emojis(attrs["content"], identity),
+         :ok <- check_thread_not_locked(post_attrs) do
       insert_post(changeset, attrs)
     end
   end
+
+  # If the target of a reply (parent or root) has been admin-locked,
+  # reject the insert. We read both because a locked thread should
+  # block new replies anywhere in the subtree, not just direct
+  # replies to the locked node.
+  defp check_thread_not_locked(%{"parent_id" => parent_id} = attrs)
+       when is_binary(parent_id) do
+    root_id = attrs["root_id"]
+
+    ids = Enum.uniq([parent_id, root_id]) |> Enum.reject(&is_nil/1)
+
+    locked_exists? =
+      Post
+      |> where([p], p.id in ^ids and not is_nil(p.replies_locked_at))
+      |> Repo.exists?()
+
+    if locked_exists?, do: {:error, :replies_locked}, else: :ok
+  end
+
+  defp check_thread_not_locked(_attrs), do: :ok
 
   defp resolve_limits(nil), do: TierLimits.limits_for_tier("verified_pro")
   defp resolve_limits(identity), do: TierLimits.limits_for(identity)
@@ -130,6 +155,7 @@ defmodule Hybridsocial.Social.Posts do
           |> where([p], p.id == ^post.parent_id)
           |> Repo.update_all(inc: [reply_count: 1])
 
+          bump_thread_activity(post)
           notify_reply_to_parent(post)
         end
 
@@ -153,6 +179,52 @@ defmodule Hybridsocial.Social.Posts do
       {:error, changeset} ->
         {:error, changeset}
     end
+  end
+
+  # Thread-bumping: a new reply bumps `last_activity_at` on every
+  # ancestor we can identify (parent + root). Timelines order by
+  # `last_activity_at DESC` so the thread surfaces back up without
+  # the reply itself needing to appear as a standalone item.
+  #
+  # We only bump if the reply is actually published — a scheduled
+  # reply stamped for the future shouldn't pre-bump its thread. And
+  # we use the reply's `published_at` as the new value (not NOW()),
+  # so back-dated federation imports don't jerk things forward.
+  @doc """
+  Publicly callable alias for `bump_thread_activity/1` so the
+  federation inbound path can bump local ancestors when a remote
+  reply lands. Kept as a separate public name so the private helper
+  stays scoped to the create-path call site.
+  """
+  def bump_thread_activity_public(%Post{} = post), do: bump_thread_activity(post)
+
+  defp bump_thread_activity(%Post{published_at: nil}), do: :ok
+
+  defp bump_thread_activity(%Post{published_at: bump_ts} = post) do
+    ids = Enum.uniq([post.parent_id, post.root_id]) |> Enum.reject(&is_nil/1)
+
+    if ids != [] do
+      # Only bump forward — if a post already has a newer
+      # `last_activity_at` (from another in-flight reply, say), leave
+      # it. `GREATEST(COALESCE(...), ?)` handles both the never-set
+      # and already-set-but-older cases.
+      from(p in Post,
+        where: p.id in ^ids,
+        update: [
+          set: [
+            last_activity_at:
+              fragment(
+                "GREATEST(COALESCE(?, 'epoch'::timestamptz), ?)",
+                p.last_activity_at,
+                ^bump_ts
+              )
+          ]
+        ]
+      )
+      |> Repo.update_all([])
+    end
+
+    :ok
   end
 
   defp scheduled_for_future?(%Post{scheduled_at: nil}), do: false
@@ -1142,6 +1214,152 @@ defmodule Hybridsocial.Social.Posts do
 
         error ->
           error
+      end
+    end
+  end
+
+  @doc """
+  Admin-hide: drop the post from public timelines without deleting
+  it. Permalink still resolves; the post's own page, its author's
+  profile (when viewed by the author or an admin), and existing
+  replies stay accessible.
+  """
+  def admin_hide_post(post_id, admin_id) do
+    with {:ok, post} <- admin_get_post(post_id) do
+      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+      case post
+           |> Ecto.Changeset.change(hidden_at: now, hidden_by: admin_id)
+           |> Repo.update() do
+        {:ok, updated} ->
+          Hybridsocial.Moderation.log(admin_id, "post.hidden", "post", post_id, %{
+            post_identity_id: post.identity_id
+          })
+
+          {:ok, updated}
+
+        err ->
+          err
+      end
+    end
+  end
+
+  @doc "Admin-unhide: restore the post to public timelines."
+  def admin_unhide_post(post_id, admin_id) do
+    with {:ok, post} <- admin_get_post(post_id) do
+      case post
+           |> Ecto.Changeset.change(hidden_at: nil, hidden_by: nil)
+           |> Repo.update() do
+        {:ok, updated} ->
+          Hybridsocial.Moderation.log(admin_id, "post.unhidden", "post", post_id, %{
+            post_identity_id: post.identity_id
+          })
+
+          {:ok, updated}
+
+        err ->
+          err
+      end
+    end
+  end
+
+  @doc """
+  Admin-lock: reject further replies to this post and everything
+  under it. `create_post/3` checks the target's `replies_locked_at`
+  (and walks to root) before inserting.
+  """
+  def admin_lock_replies(post_id, admin_id) do
+    with {:ok, post} <- admin_get_post(post_id) do
+      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+      case post
+           |> Ecto.Changeset.change(replies_locked_at: now, replies_locked_by: admin_id)
+           |> Repo.update() do
+        {:ok, updated} ->
+          Hybridsocial.Moderation.log(admin_id, "post.replies_locked", "post", post_id, %{
+            post_identity_id: post.identity_id
+          })
+
+          {:ok, updated}
+
+        err ->
+          err
+      end
+    end
+  end
+
+  @doc """
+  Admin re-fetch: pull the AP object fresh from its origin and apply
+  the current content/sensitivity/spoiler/language back to the local
+  row. Only works on remote posts — locals have no upstream to refetch
+  from. The content is re-stripped and the `content_html` is
+  overwritten; counts (reply_count, boost_count, reaction_count) are
+  left alone because they're local aggregates, not origin truth.
+  """
+  def admin_refetch_post(post_id, admin_id) do
+    with {:ok, post} <- admin_get_post(post_id),
+         true <- is_binary(post.ap_id) || {:error, :not_remote},
+         :ok <- ensure_remote(post),
+         {:ok, object} <- Hybridsocial.Federation.ObjectResolver.resolve(post.ap_id) do
+      attrs = Hybridsocial.Federation.ActivityMapper.to_post(object)
+
+      changeset =
+        post
+        |> Ecto.Changeset.cast(attrs, [
+          :content,
+          :content_html,
+          :sensitive,
+          :spoiler_text,
+          :language
+        ])
+
+      case Repo.update(changeset) do
+        {:ok, updated} ->
+          Hybridsocial.Moderation.log(admin_id, "post.refetched", "post", post_id, %{
+            ap_id: post.ap_id
+          })
+
+          {:ok, updated}
+
+        err ->
+          err
+      end
+    else
+      {:error, :not_remote} -> {:error, :not_remote}
+      false -> {:error, :not_remote}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # A post is "remote" iff its ap_id lives on a different host than
+  # the local endpoint. Local posts have ap_id under our own URL.
+  defp ensure_remote(%Post{ap_id: ap_id}) when is_binary(ap_id) do
+    local_host = URI.parse(HybridsocialWeb.Endpoint.url()).host
+
+    case URI.parse(ap_id).host do
+      ^local_host -> {:error, :not_remote}
+      nil -> {:error, :not_remote}
+      _ -> :ok
+    end
+  end
+
+  defp ensure_remote(_), do: {:error, :not_remote}
+
+  @doc "Admin-unlock replies."
+  def admin_unlock_replies(post_id, admin_id) do
+    with {:ok, post} <- admin_get_post(post_id) do
+      case post
+           |> Ecto.Changeset.change(replies_locked_at: nil, replies_locked_by: nil)
+           |> Repo.update() do
+        {:ok, updated} ->
+          Hybridsocial.Moderation.log(admin_id, "post.replies_unlocked", "post", post_id, %{
+            post_identity_id: post.identity_id
+          })
+
+          {:ok, updated}
+
+        err ->
+          err
       end
     end
   end

@@ -100,12 +100,23 @@ defmodule Hybridsocial.Feeds do
       Post
       |> where([p], p.visibility == "public")
       |> where([p], is_nil(p.deleted_at))
+      # Admin-hidden posts stay accessible by permalink but drop out
+      # of every public timeline — same intent as soft-delete, but
+      # recoverable with a single admin unhide.
+      |> where([p], is_nil(p.hidden_at))
       |> maybe_exclude_replies(include_replies)
       |> apply_cursor_filters(opts)
       |> Visibility.apply_silence_filter()
       |> Visibility.apply_shadow_ban_filter(viewer_id)
       |> maybe_filter_local(local_only)
-      |> order_by([p], desc: p.inserted_at)
+      # Order by the thread-bump timestamp (falls back to published_at,
+      # then inserted_at so nothing sorts as NULL and drops off the
+      # end). `id DESC` is the tie-breaker for the many-same-second
+      # case; deterministic + matches cursor semantics.
+      |> order_by([p],
+        desc: coalesce(p.last_activity_at, coalesce(p.published_at, p.inserted_at)),
+        desc: p.id
+      )
       |> limit(^limit)
       |> preload(:identity)
 
@@ -311,11 +322,15 @@ defmodule Hybridsocial.Feeds do
       Post
       |> where([p], p.visibility == "public")
       |> where([p], is_nil(p.deleted_at))
+      |> where([p], is_nil(p.hidden_at))
       |> maybe_exclude_replies(include_replies)
       |> apply_cursor_filters(opts)
       |> Visibility.apply_silence_filter()
       |> Visibility.apply_shadow_ban_filter(viewer_id)
-      |> order_by([p], desc: p.inserted_at)
+      |> order_by([p],
+        desc: coalesce(p.last_activity_at, coalesce(p.published_at, p.inserted_at)),
+        desc: p.id
+      )
       |> limit(^limit)
       |> preload(:identity)
 
@@ -405,8 +420,14 @@ defmodule Hybridsocial.Feeds do
 
   defp maybe_exclude_replies(query, true = _include), do: query
 
+  # Orphan federated replies are a common source of "why is a reply
+  # showing up on Explore as if it's a top-level post?" — they arrive
+  # from federation with `parent_ap_id` set, but we never managed to
+  # link `parent_id` (parent lives on a third instance, or the reply
+  # beat the parent to us). Treat those as replies too. A bumped root
+  # already surfaces the thread, so hiding these loses no signal.
   defp maybe_exclude_replies(query, false = _include) do
-    where(query, [p], is_nil(p.parent_id))
+    where(query, [p], is_nil(p.parent_id) and is_nil(p.parent_ap_id))
   end
 
   defp maybe_only_media(query, false), do: query

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import Tabs from '$lib/components/ui/Tabs.svelte';
   import DataTable from '$lib/components/admin/DataTable.svelte';
   import { addToast } from '$lib/stores/toast.js';
@@ -103,6 +105,18 @@
   }
 
   onMount(async () => {
+    // Legacy URL support: AdminPostActions used to link here with
+    // `?post=<id>` which never did anything. Redirect to the real
+    // per-post admin view so old bookmarks and cached pages still
+    // land somewhere useful.
+    if (browser) {
+      const postId = new URL(window.location.href).searchParams.get('post');
+      if (postId) {
+        goto(`/admin/posts/${encodeURIComponent(postId)}`, { replaceState: true });
+        return;
+      }
+    }
+
     await loadReports();
   });
 

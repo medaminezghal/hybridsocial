@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import type { Identity } from '$lib/api/types.js';
   import { search } from '$lib/api/search.js';
@@ -11,6 +13,44 @@
   let searching = $state(false);
   let creating = $state(false);
   let searchTimeout: ReturnType<typeof setTimeout> | undefined;
+
+  // Accept `?to=<handle>` (from "Chat with @user" on post cards or
+  // the "Message" button on profiles). Search for the handle; if
+  // there's one unambiguous result, start a conversation; otherwise
+  // populate the search box and show the candidates so the user can
+  // disambiguate. Remote handles are `alice@domain`; locals are bare.
+  onMount(() => {
+    if (!browser) return;
+    const to = new URL(window.location.href).searchParams.get('to');
+    if (!to) return;
+    query = to.replace(/^@/, '');
+    handleInput();
+    resolveToHandle(query);
+  });
+
+  async function resolveToHandle(handle: string) {
+    searching = true;
+    try {
+      const res = await search(handle, { type: 'accounts', limit: 5 });
+      const exact = res.accounts.find((a) => {
+        const acct = (a as unknown as { acct?: string }).acct || a.handle;
+        return (
+          acct.toLowerCase() === handle.toLowerCase() ||
+          a.handle.toLowerCase() === handle.toLowerCase()
+        );
+      });
+
+      results = res.accounts;
+
+      // Auto-start only on an exact match — otherwise the user could
+      // land in a conversation with a similarly-named stranger.
+      if (exact) startConversation(exact.id);
+    } catch {
+      results = [];
+    } finally {
+      searching = false;
+    }
+  }
 
   function handleInput() {
     if (searchTimeout) clearTimeout(searchTimeout);

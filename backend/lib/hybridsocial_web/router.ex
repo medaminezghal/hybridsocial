@@ -821,6 +821,11 @@ defmodule HybridsocialWeb.Router do
     delete "/posts/:id", AdminController, :delete_post
     post "/posts/:id/sensitive", AdminController, :force_sensitive
     post "/posts/:id/unsensitive", AdminController, :remove_sensitive
+    post "/posts/:id/hide", AdminController, :hide_post
+    post "/posts/:id/unhide", AdminController, :unhide_post
+    post "/posts/:id/lock_replies", AdminController, :lock_replies
+    post "/posts/:id/unlock_replies", AdminController, :unlock_replies
+    post "/posts/:id/refetch", AdminController, :refetch_post
 
     # Moderation Queue
     get "/moderation_queue", AdminController, :list_moderation_queue
