@@ -17,6 +17,11 @@
   let users: AdminUser[] = $state([]);
   let loading = $state(true);
   let search = $state('');
+  // When the URL carries `?id=<identity_id>` the list is pinned to
+  // exactly that one row — no substring fuzziness, no risk of also
+  // matching other users whose handles happen to share a prefix.
+  // Cleared as soon as the admin edits the search box.
+  let exactIdFilter: string | null = $state(null);
   let statusFilter = $state('all');
   let locationFilter = $state<'all' | 'local' | 'remote'>('all');
   let sortKey = $state('created_at');
@@ -83,6 +88,12 @@
 
   let filteredUsers = $derived(
     users.filter((u) => {
+      // Exact-id filter short-circuits everything else. Used when a
+      // deep-link (e.g. "View author in admin" on a post) wants to
+      // pin the list to one specific identity regardless of search
+      // / status / location filters.
+      if (exactIdFilter) return u.id === exactIdFilter;
+
       const matchesSearch =
         !search ||
         u.handle.toLowerCase().includes(search.toLowerCase()) ||
@@ -152,18 +163,29 @@
   );
 
   onMount(async () => {
-    // Seed the search input from `?search=<handle>` — lets other
-    // admin pages (e.g. the post-detail right-rail, the post moderation
-    // menu's "View author in admin") deep-link here with the user
-    // pre-filtered. Strip a leading `@` so handles pasted with or
-    // without the sigil both resolve cleanly.
+    // Deep-link params:
+    //   ?id=<identity_id>  — pin to exactly that user
+    //   ?search=<text>     — pre-fill the search box with substring match
+    // `id` wins when both are set (used by "View author in admin"
+    // which has the precise id). Search is the older shape we keep
+    // for bookmarks and for cases where only a handle is known.
     if (typeof window !== 'undefined') {
-      const q = new URL(window.location.href).searchParams.get('search');
+      const url = new URL(window.location.href);
+      const exactId = url.searchParams.get('id');
+      const q = url.searchParams.get('search');
+      if (exactId) exactIdFilter = exactId;
       if (q) search = q.replace(/^@/, '');
     }
 
     await loadUsers();
   });
+
+  // Any manual edit to search/status/location drops the pinned
+  // single-user filter, so the admin can broaden the view without
+  // having to reload the page.
+  function clearExactFilter() {
+    if (exactIdFilter) exactIdFilter = null;
+  }
 
   async function loadUsers() {
     loading = true;
@@ -514,6 +536,15 @@
     <button type="button" role="tab" class="loc-tab" class:loc-tab-active={locationFilter === 'remote'} onclick={() => locationFilter = 'remote'}>Remote</button>
   </div>
 
+  {#if exactIdFilter}
+    <div class="pinned-banner">
+      <span>Pinned to one user from a deep link.</span>
+      <button type="button" class="pinned-banner-btn" onclick={clearExactFilter}>
+        Show all users
+      </button>
+    </div>
+  {/if}
+
   <div class="toolbar">
     <div class="search-bar">
       <input
@@ -521,6 +552,7 @@
         class="input"
         placeholder="Search users..."
         bind:value={search}
+        oninput={clearExactFilter}
       />
     </div>
     <select class="input status-select" bind:value={statusFilter}>
@@ -930,6 +962,35 @@
     display: flex;
     gap: var(--space-3);
     margin-block-end: var(--space-4);
+  }
+
+  .pinned-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    margin-block-end: var(--space-3);
+    background: var(--color-secondary-container);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    color: var(--color-primary);
+  }
+
+  .pinned-banner-btn {
+    background: transparent;
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .pinned-banner-btn:hover {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
   }
 
   .search-bar {

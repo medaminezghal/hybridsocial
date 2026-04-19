@@ -45,11 +45,17 @@ defmodule Hybridsocial.Config do
   @doc "Check if email confirmation is required."
   def require_email_confirmation?, do: get("require_email_confirmation", true)
 
+  # 1200 authenticated / 240 anonymous per minute. Previous defaults
+  # (300 / 60) caught legitimate SPA traffic when a single page load
+  # does ~15 API calls (feed, notifications, me, streaming poll,
+  # instance, tier). Auth-sensitive endpoints (login, register, 2FA)
+  # still have their own stricter per-endpoint caps in
+  # `Plugs.RateLimiter.get_limit/1`.
   @doc "Get the rate limit for authenticated users."
-  def rate_limit_authenticated, do: get("rate_limit_authenticated", 300)
+  def rate_limit_authenticated, do: get("rate_limit_authenticated", 1200)
 
   @doc "Get the rate limit for anonymous users."
-  def rate_limit_anonymous, do: get("rate_limit_anonymous", 60)
+  def rate_limit_anonymous, do: get("rate_limit_anonymous", 240)
 
   # --- Subaccount limits ---
 

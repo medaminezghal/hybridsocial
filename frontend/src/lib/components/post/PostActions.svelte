@@ -67,14 +67,17 @@
     return acct.includes('@');
   });
 
-  // `post.url` is the user-facing URL on the origin instance (e.g.
-  // `https://mastodon.social/@alice/12345`). `post.uri` is the AP id
-  // — fine as a fallback but looks uglier in the address bar. The
-  // previous implementation used `post.account.url`, which is the
-  // author's profile page, not the post — "Display on original
-  // instance" would take you to the user's timeline instead of the
-  // specific post you clicked.
-  let remotePostUrl = $derived(post.url || post.uri || '');
+  // "Display on original instance" only makes sense for federated
+  // posts. For those, the origin permalink is `post.uri` (the AP
+  // object id, which every major server — Mastodon, Pleroma, Misskey
+  // — serves as HTML under browser content negotiation). `post.url`
+  // is always built from our own endpoint in the serializer, so
+  // using it here would open the local copy and the menu item would
+  // be misleading. For local posts (which don't show this menu item
+  // anyway), fall back to `url` so the value is non-empty.
+  let remotePostUrl = $derived(
+    isRemotePost() ? (post.uri || post.url || '') : (post.url || '')
+  );
 
   // Confirmation dialog state
   let confirmAction: 'mute_user' | 'unmute_user' | 'block_user' | 'unblock_user' | null = $state(null);
@@ -538,21 +541,34 @@
     {/if}
   </div>
 
-  <!-- Reply -->
-  <button
-    type="button"
-    class="action-btn action-reply"
-    onclick={handleReply}
-    onkeydown={(e) => handleActionKeydown(e, () => handleReply(new MouseEvent('click')))}
-    aria-label="Reply ({replyCount})"
-  >
-    {#if replyCount > 0}
-      <span class="material-symbols-outlined action-icon filled">chat_bubble</span>
-      <span class="action-count">{replyCount}</span>
-    {:else}
-      <span class="material-symbols-outlined action-icon">chat_bubble</span>
-    {/if}
-  </button>
+  <!-- Reply (disabled when admin has locked replies on this thread) -->
+  {#if post.replies_locked_at}
+    <button
+      type="button"
+      class="action-btn action-reply action-reply-locked"
+      disabled
+      aria-label="Replies are disabled on this post"
+      title="Replies are disabled on this post"
+    >
+      <span class="material-symbols-outlined action-icon">speaker_notes_off</span>
+      <span class="action-locked-label">Replies disabled</span>
+    </button>
+  {:else}
+    <button
+      type="button"
+      class="action-btn action-reply"
+      onclick={handleReply}
+      onkeydown={(e) => handleActionKeydown(e, () => handleReply(new MouseEvent('click')))}
+      aria-label="Reply ({replyCount})"
+    >
+      {#if replyCount > 0}
+        <span class="material-symbols-outlined action-icon filled">chat_bubble</span>
+        <span class="action-count">{replyCount}</span>
+      {:else}
+        <span class="material-symbols-outlined action-icon">chat_bubble</span>
+      {/if}
+    </button>
+  {/if}
 
   <!-- Boost / Share -->
   <button
@@ -919,6 +935,29 @@
   /* Reply hover */
   .action-reply:hover {
     color: var(--color-primary);
+  }
+
+  /* Admin-locked thread: button is non-interactive, grayed out,
+     and carries a short inline label so the reason is obvious
+     without hovering. The `speaker_notes_off` glyph is the
+     chat-bubble with a slash through it — Material's canonical
+     "comments disabled" icon, so we don't have to build a
+     custom SVG. */
+  .action-reply-locked {
+    color: var(--color-text-tertiary);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .action-reply-locked:hover {
+    color: var(--color-text-tertiary);
+    background: transparent;
+  }
+
+  .action-locked-label {
+    font-size: var(--text-xs);
+    font-style: italic;
+    margin-inline-start: var(--space-1);
   }
 
   /* Boost hover + active */

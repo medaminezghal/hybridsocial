@@ -293,11 +293,11 @@
   function handleViewAuthor(e: MouseEvent) {
     e.stopPropagation();
     showDropdown = false;
-    if (!authorHandle) return;
-    // /admin/users reads ?search= on mount and populates the filter,
-    // so the list opens with just this author visible. One click to
-    // the kebab menu from there for role/suspend/etc.
-    window.location.href = `/admin/users?search=${encodeURIComponent(authorHandle)}`;
+    if (!authorId) return;
+    // /admin/users reads ?id= and pins the list to exactly that
+    // identity (vs ?search= which matches substrings and would
+    // also return any handle that happens to share a prefix).
+    window.location.href = `/admin/users?id=${encodeURIComponent(authorId)}`;
   }
 
   async function handleRefetch(e: MouseEvent) {
