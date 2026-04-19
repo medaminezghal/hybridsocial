@@ -36,11 +36,15 @@ ENV MIX_ENV=prod \
 WORKDIR /app
 
 # Install runtime dependencies (Elixir/OTP already present from base)
+# ffmpeg provides `ffprobe`, used to validate audio uploads
+# (duration + stream inspection). Hard dependency for audio posts:
+# Media.Audio.probe/2 fails-closed if ffprobe is missing.
 RUN apk add --no-cache \
       libstdc++ \
       ncurses-libs \
       ca-certificates \
-      postgresql-client
+      postgresql-client \
+      ffmpeg
 
 # Create a non-root user
 RUN addgroup --system app && \
