@@ -147,37 +147,50 @@
 
     for (let s = 0; s < STRAND_COUNT; s++) {
       const strandFrac = s / (STRAND_COUNT - 1 || 1);
-      // Each strand gets a distinct sine frequency + phase so
-      // they cross each other. Strand amplitudes are also
-      // slightly different so you see depth in the bundle.
       const strandScale = 0.55 + 0.45 * Math.sin(strandFrac * Math.PI);
-      const strandFreq = 0.06 + 0.012 * s; // radians per x pixel
-      // Phase advance: unique speed per strand AND alternating
-      // direction (odd strands drift right, even strands drift
-      // left). Without the sign flip every strand's phase
-      // increases monotonically and the bundle reads as a single
-      // synchronized shift even at different speeds. With it, you
-      // see strands crossing each other continuously — which is
-      // what makes the bundle look alive vs. rigid.
+      // Two sine terms per strand: a slow "carrier" that gives
+      // the interlacing shape, plus a higher-frequency harmonic
+      // that adds real-audio sharpness. Adding them makes the
+      // curve bumpier where the carrier peaks, like actual PCM.
+      const carrierFreq = 0.06 + 0.012 * s;
+      const harmonicFreq = carrierFreq * 4.3 + 0.01 * s;
       const strandSpeed = 0.5 + s * 0.28;
       const strandDir = s % 2 === 0 ? 1 : -1;
       const strandPhase =
         strandFrac * Math.PI * 2 + animPhase * strandSpeed * strandDir;
+      const harmonicPhase = strandPhase * 1.7 + strandFrac * 2.1;
+      // Strand-unique noise seed. Cheap deterministic hash keeps
+      // the jitter stable frame-to-frame at a given sample point,
+      // so the strand looks like one jagged curve and not
+      // TV static.
+      const noiseSeed = (s + 1) * 13.37;
 
       ctx.lineWidth = 1;
       ctx.beginPath();
       for (let i = 0; i <= SAMPLES; i++) {
-        const t = i / SAMPLES; // 0..1 across canvas
+        const t = i / SAMPLES;
         const x = t * w;
-        // Linear interp into the envelope for the local amplitude.
         const envPos = t * (envelope.length - 1);
         const envIdx = Math.floor(envPos);
         const envFrac = envPos - envIdx;
         const envA = envelope[envIdx] ?? 0;
         const envB = envelope[Math.min(envIdx + 1, envelope.length - 1)] ?? envA;
         const mag = Math.max(0.05, envA * (1 - envFrac) + envB * envFrac);
-        // Sine curve for this strand at this x.
-        const y = midY + Math.sin(x * strandFreq + strandPhase) * maxHalf * strandScale * mag;
+
+        // Carrier: main interlacing shape.
+        const carrier = Math.sin(x * carrierFreq + strandPhase);
+        // Harmonic: higher-frequency wiggle — 0.35x weight so it
+        // sharpens the silhouette without drowning out the base.
+        const harmonic = Math.sin(x * harmonicFreq + harmonicPhase) * 0.35;
+        // Stable pseudo-noise per (strand, sample): fract of
+        // sin() is the cheap classic hash. Scale proportional to
+        // signal magnitude so quiet sections stay smooth.
+        const hash = Math.sin(i * 12.9898 + noiseSeed + animPhase * 0.2) * 43758.5453;
+        const noise = (hash - Math.floor(hash) - 0.5) * 0.45;
+
+        const shape = (carrier + harmonic + noise);
+        const y = midY + shape * maxHalf * strandScale * mag;
+
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       }
