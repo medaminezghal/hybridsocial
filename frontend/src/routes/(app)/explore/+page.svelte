@@ -231,6 +231,18 @@
   function handlePostReplace(e: Event) {
     const { oldId, post } = (e as CustomEvent<{ oldId: string; post: Post }>).detail;
     if (!oldId || !post) return;
+
+    // Guard against the streaming broadcast arriving before the
+    // composer's optimistic-replace — if the real post is already in
+    // the feed under its real id, naively mapping oldId → post
+    // duplicates keys and crashes the {#each}. Drop the optimistic
+    // entry instead.
+    const realAlreadyPresent = feedPosts.some((p) => p.id === post.id && p.id !== oldId);
+    if (realAlreadyPresent) {
+      feedPosts = feedPosts.filter((p) => p.id !== oldId);
+      return;
+    }
+
     feedPosts = feedPosts.map((p) => (p.id === oldId ? post : p));
   }
 

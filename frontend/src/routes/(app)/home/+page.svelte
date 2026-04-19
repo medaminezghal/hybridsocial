@@ -126,17 +126,33 @@
     // Listen for new posts from the composer
     function handleNewPost(e: Event) {
       const newPost = (e as CustomEvent).detail;
-      if (newPost && !newPost.parent_id) {
-        // Only add top-level posts to the feed (not replies)
-        posts = [newPost, ...posts];
-      }
+      if (!newPost || newPost.parent_id) return;
+      // Dedup — the streaming broadcast now includes the author's
+      // own posts, so if the server round-trip is fast enough we
+      // could end up with the real post landing before the optimistic
+      // one is placed. Don't insert twice.
+      if (posts.some((p) => p.id === newPost.id)) return;
+      posts = [newPost, ...posts];
     }
 
-    // Replace optimistic post with real server response
+    // Replace optimistic post with real server response.
+    //
+    // The streaming broadcast can arrive BEFORE this event for local
+    // posts — the backend fans out to the author's user:<id> topic
+    // as soon as the insert hooks run. If the real post is already in
+    // the array under its real id, naively `map`-ing optimistic → real
+    // creates a duplicate key and Svelte's {#each .. (post.id)}
+    // errors with `each_key_duplicate`. Detect the collision and drop
+    // the optimistic entry instead.
     function handlePostReplace(e: Event) {
       const { oldId, post } = (e as CustomEvent).detail;
-      if (oldId && post) {
-        posts = posts.map(p => p.id === oldId ? post : p);
+      if (!oldId || !post) return;
+
+      const realAlreadyPresent = posts.some((p) => p.id === post.id && p.id !== oldId);
+      if (realAlreadyPresent) {
+        posts = posts.filter((p) => p.id !== oldId);
+      } else {
+        posts = posts.map((p) => (p.id === oldId ? post : p));
       }
     }
 
