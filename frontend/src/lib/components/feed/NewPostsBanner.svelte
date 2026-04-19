@@ -27,19 +27,14 @@
   let label = $derived(count === 1 ? 'post' : 'posts');
 
   // Ripple key increments on every display change and remounts the
-  // ripple overlay via {#key}. That restarts the CSS animation from
-  // t=0 so the effect fires fresh each time — perceived as a water
-  // surface disturbed by the new digit landing.
-  let rippleKey = $state(0);
-  let firstRender = true;
-
-  $effect(() => {
-    display; // track
-    if (firstRender) {
-      firstRender = false;
-      return;
-    }
-    rippleKey++;
+  // ripple overlay via {#key}. Derive it directly from `display` —
+  // using an `$effect` that writes back to state caused Svelte 5 to
+  // detect infinite update depth when `count` ticked from a derived
+  // store (the effect re-ran the same microtask it wrote in).
+  let rippleKey = $derived.by(() => {
+    // Pure map: each distinct display value gets a fresh key. The
+    // `{#key rippleKey}` remount restarts the CSS animation.
+    return display;
   });
 </script>
 
