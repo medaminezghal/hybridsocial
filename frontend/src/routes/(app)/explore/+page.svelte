@@ -10,6 +10,15 @@
   import FeedList from '$lib/components/feed/FeedList.svelte';
   import Avatar from '$lib/components/ui/Avatar.svelte';
   import Skeleton from '$lib/components/ui/Skeleton.svelte';
+  import NewPostsBanner from '$lib/components/feed/NewPostsBanner.svelte';
+  import {
+    queuedCount,
+    flushQueue,
+    setAtTop,
+    connectStream,
+    disconnectStream,
+    maybeTruncate,
+  } from '$lib/stores/timeline-stream.js';
 
   type ExploreTab = 'local' | 'global' | 'trending';
 
@@ -125,7 +134,46 @@
     if (tab !== exploreTab) {
       exploreTab = tab;
       loadFeed(true);
+      wireStreamForTab();
     }
+  }
+
+  // The public stream includes both local and federated posts. When
+  // the Local tab is active we want to drop remote authors; on
+  // Global we want everything; on Trending we don't stream at all
+  // (algorithmic feed — a fresh post shouldn't jump onto the trending
+  // list just because it was published).
+  function wireStreamForTab() {
+    const apiBase = import.meta.env.VITE_API_URL || '';
+    if (exploreTab === 'trending') {
+      disconnectStream();
+      return;
+    }
+
+    const filter =
+      exploreTab === 'local'
+        ? (p: Post) => {
+            const acct = (p.account as any)?.acct ?? '';
+            return !acct.includes('@');
+          }
+        : undefined;
+
+    connectStream('public', apiBase, { filter });
+  }
+
+  function mergeQueuedPosts() {
+    const queued = flushQueue();
+    if (queued.length > 0) {
+      const existingIds = new Set(feedPosts.map((p) => p.id));
+      const fresh = queued.filter((p) => !existingIds.has(p.id));
+      feedPosts = maybeTruncate([...fresh, ...feedPosts]);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function handleScroll() {
+    const atTop = window.scrollY < 50;
+    setAtTop(atTop);
   }
 
   // Mirror the home-timeline / profile-page pattern so submitting a
@@ -165,13 +213,31 @@
     feedPosts = feedPosts.map((p) => (p.id === oldId ? post : p));
   }
 
+  function handleTimelineUpdate(e: Event) {
+    const post = (e as CustomEvent<Post>).detail;
+    if (!post) return;
+    // Live updates only replace the top of the feed when the user
+    // is actually at the top. The filter in the stream module
+    // already discarded remote posts on the Local tab.
+    if (post.parent_id) return;
+    if (feedPosts.some((p) => p.id === post.id)) return;
+    feedPosts = maybeTruncate([post, ...feedPosts]);
+  }
+
   onMount(() => {
     loadFeed(true);
+    wireStreamForTab();
     window.addEventListener('new-post', handleNewPost);
     window.addEventListener('post-replace', handlePostReplace);
+    window.addEventListener('timeline-update', handleTimelineUpdate);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
     return () => {
+      disconnectStream();
       window.removeEventListener('new-post', handleNewPost);
       window.removeEventListener('post-replace', handlePostReplace);
+      window.removeEventListener('timeline-update', handleTimelineUpdate);
+      window.removeEventListener('scroll', handleScroll);
     };
   });
 
@@ -332,6 +398,10 @@
         Trending
       </button>
     </div>
+
+    {#if exploreTab !== 'trending'}
+      <NewPostsBanner count={$queuedCount} onclick={mergeQueuedPosts} />
+    {/if}
 
     <FeedList
       posts={feedPosts}

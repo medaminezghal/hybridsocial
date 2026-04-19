@@ -2,6 +2,12 @@ import { writable, derived } from 'svelte/store';
 import type { Post } from '$lib/api/types.js';
 import { browser } from '$app/environment';
 
+// Shared state for the currently-active SSE timeline stream. The
+// module supports one active stream at a time — switching pages (or
+// switching explore tabs) disconnects the old stream and opens a new
+// one. This keeps the `queuedCount` store semantics clean: it always
+// reflects unseen posts for the stream the user is currently on.
+
 const MAX_QUEUE_SIZE = 30;
 const TRUNCATE_TO = 60;
 const TRUNCATE_THRESHOLD = 120;
@@ -22,6 +28,7 @@ export const isStreamConnected = derived(state, ($s) => $s.connected);
 
 let eventSource: EventSource | null = null;
 let isAtTop = true;
+let currentFilter: ((post: Post) => boolean) | null = null;
 
 export function setAtTop(atTop: boolean) {
   isAtTop = atTop;
@@ -40,15 +47,43 @@ export function flushQueue(): Post[] {
   return flushed;
 }
 
+/** Endpoint kind determines the URL + Phoenix.PubSub topic server-side. */
+export type StreamKind = 'home' | 'public';
+
+export interface ConnectOptions {
+  /** Called per incoming post. Return false to discard (filter). */
+  filter?: (post: Post) => boolean;
+}
+
 /**
- * Connect to the streaming endpoint for home timeline updates.
+ * Connect to a streaming endpoint. Replaces any existing connection.
+ *   - 'home' → /streaming/user subscribes to user:<me> (home timeline
+ *     fan-out; every post by a followed user pings this stream)
+ *   - 'public' → /streaming/public subscribes to timeline:public
+ *     (every public/unlisted post instance-wide)
+ *
+ * The optional filter lets callers narrow the feed: the explore Local
+ * tab wants only locally-authored posts, so it passes a filter that
+ * rejects posts where the acct contains `@`.
  */
-export function connectTimelineStream(apiBase: string): void {
+export function connectStream(
+  kind: StreamKind,
+  apiBase: string,
+  options: ConnectOptions = {}
+): void {
   if (!browser) return;
-  disconnectTimelineStream();
+  disconnectStream();
+
+  currentFilter = options.filter ?? null;
+  // Reset queue so counts from a previous stream don't leak into the
+  // new one — otherwise switching from Global → Local would inherit
+  // remote posts the user explicitly filtered out.
+  state.set({ queued: [], connected: false });
 
   try {
-    const url = `${apiBase}/api/v1/streaming/user?stream=home`;
+    const path =
+      kind === 'home' ? '/api/v1/streaming/user?stream=home' : '/api/v1/streaming/public';
+    const url = `${apiBase}${path}`;
     eventSource = new EventSource(url, { withCredentials: true });
 
     state.update((s) => ({ ...s, connected: true }));
@@ -56,13 +91,15 @@ export function connectTimelineStream(apiBase: string): void {
     eventSource.addEventListener('update', (event) => {
       try {
         const post: Post = JSON.parse(event.data);
+        if (currentFilter && !currentFilter(post)) return;
 
         if (isAtTop) {
-          // Dispatch directly to the feed
           window.dispatchEvent(new CustomEvent('timeline-update', { detail: post }));
         } else {
-          // Queue it
           state.update((s) => {
+            // Avoid duplicate queueing if the backend fanout delivers
+            // a post twice (rare, e.g. author + follower broadcast).
+            if (s.queued.some((p) => p.id === post.id)) return s;
             const queued = [post, ...s.queued].slice(0, MAX_QUEUE_SIZE);
             return { ...s, queued };
           });
@@ -92,23 +129,36 @@ export function connectTimelineStream(apiBase: string): void {
 
     eventSource.onerror = () => {
       state.update((s) => ({ ...s, connected: false }));
-      // Will auto-reconnect via EventSource
+      // EventSource auto-reconnects
     };
 
     eventSource.onopen = () => {
       state.update((s) => ({ ...s, connected: true }));
     };
   } catch {
-    // EventSource creation failed
+    // EventSource creation failed — SSE unsupported or blocked
   }
 }
 
-export function disconnectTimelineStream(): void {
+export function disconnectStream(): void {
   if (eventSource) {
     eventSource.close();
     eventSource = null;
   }
+  currentFilter = null;
   state.update((s) => ({ ...s, connected: false }));
+}
+
+// ─── Backward-compat aliases ────────────────────────────────────────
+// Existing callers (home page) used the pre-generalization names.
+// Keeping them as thin wrappers avoids touching every consumer.
+
+export function connectTimelineStream(apiBase: string): void {
+  connectStream('home', apiBase);
+}
+
+export function disconnectTimelineStream(): void {
+  disconnectStream();
 }
 
 /**

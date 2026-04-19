@@ -268,6 +268,14 @@ defmodule Hybridsocial.Social.Posts do
     # Direct tab live-updates without a refresh.
     broadcast_direct_post_to_participants(post)
 
+    # Live-feed streaming: push the serialized post to the public
+    # timeline topic (explore/local/global) AND to every accepted
+    # follower's `user:<id>` topic (home timeline). Without this the
+    # "N new posts" banner never ticks — the streaming consumers
+    # were wired but no producer was calling them.
+    serialized = HybridsocialWeb.Serializers.PostSerializer.serialize(post, [])
+    Hybridsocial.Streaming.broadcast_post(serialized)
+
     # Federate public/followers-visible posts to remote followers.
     # Direct + private posts stay local unless sent as a DM; they
     # go through a different delivery path (inbox push for

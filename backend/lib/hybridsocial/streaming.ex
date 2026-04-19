@@ -10,35 +10,86 @@ defmodule Hybridsocial.Streaming do
 
   def broadcast_post(post) do
     event = %{event: "update", payload: post}
+    visibility = post[:visibility] || post["visibility"]
 
-    if post[:visibility] == "public" or post["visibility"] == "public" do
-      local_broadcast("timeline:public", event)
-      nats_publish("events.timeline.public", event)
+    maybe_broadcast_public(event, visibility)
+    maybe_broadcast_author_and_followers(event, author_id_from(post), visibility)
+    maybe_broadcast_group(event, post[:group_id] || post["group_id"])
+    broadcast_tags(event, post[:tags] || post["tags"] || [])
+
+    :ok
+  end
+
+  # Public + unlisted land on the explore/public stream; followers
+  # and direct posts do not.
+  defp maybe_broadcast_public(event, visibility) when visibility in ["public", "unlisted"] do
+    local_broadcast("timeline:public", event)
+    nats_publish("events.timeline.public", event)
+  end
+
+  defp maybe_broadcast_public(_event, _visibility), do: :ok
+
+  # Author id may arrive flat (account_id) or nested (account.id).
+  # PostSerializer nests; older call sites passed a flat struct.
+  defp author_id_from(post) do
+    post[:account_id] || post["account_id"] ||
+      get_in(post, [:account, :id]) || get_in(post, ["account", "id"]) ||
+      post[:identity_id] || post["identity_id"]
+  end
+
+  defp maybe_broadcast_author_and_followers(_event, nil, _visibility), do: :ok
+
+  defp maybe_broadcast_author_and_followers(event, author_id, visibility) do
+    # Author's own `user:<id>` topic — they see their own post in
+    # their home stream.
+    local_broadcast("user:#{author_id}", event)
+    nats_publish("events.user.#{author_id}", event)
+
+    # Home-timeline fan-out: broadcast to every accepted follower
+    # so their `user:<follower_id>` SSE stream picks the post up
+    # and shows the "N new posts" banner. Skip direct posts (they
+    # reach the recipient via broadcast_dm / the direct stream).
+    if visibility in ["public", "unlisted", "followers"] do
+      fan_out_to_followers(author_id, event)
     end
+  end
 
-    author_id = post[:account_id] || post["account_id"]
+  defp maybe_broadcast_group(_event, nil), do: :ok
 
-    if author_id do
-      local_broadcast("user:#{author_id}", event)
-      nats_publish("events.user.#{author_id}", event)
-    end
+  defp maybe_broadcast_group(event, group_id) do
+    local_broadcast("group:#{group_id}", event)
+    nats_publish("events.group.#{group_id}", event)
+  end
 
-    group_id = post[:group_id] || post["group_id"]
-
-    if group_id do
-      local_broadcast("group:#{group_id}", event)
-      nats_publish("events.group.#{group_id}", event)
-    end
-
-    tags = post[:tags] || post["tags"] || []
-
+  defp broadcast_tags(event, tags) when is_list(tags) do
     Enum.each(tags, fn tag ->
       tag_name = if is_map(tag), do: tag["name"] || tag[:name], else: tag
       local_broadcast("hashtag:#{tag_name}", event)
       nats_publish("events.hashtag.#{tag_name}", event)
     end)
+  end
 
-    :ok
+  defp broadcast_tags(_event, _), do: :ok
+
+  # Publishes the post event to every accepted follower's personal
+  # user:<id> topic. Runs inline — O(F) local PubSub sends per new
+  # post, one NATS publish to a topic the bridge will fan out on
+  # other nodes. Safe to call from a hot path since PubSub.broadcast
+  # is just an ETS lookup + message send.
+  defp fan_out_to_followers(author_id, event) do
+    import Ecto.Query
+
+    follower_ids =
+      from(f in Hybridsocial.Social.Follow,
+        where: f.followee_id == ^author_id and f.status == :accepted,
+        select: f.follower_id
+      )
+      |> Hybridsocial.Repo.all()
+
+    Enum.each(follower_ids, fn follower_id ->
+      local_broadcast("user:#{follower_id}", event)
+      nats_publish("events.user.#{follower_id}", event)
+    end)
   end
 
   def broadcast_notification(notification) do
