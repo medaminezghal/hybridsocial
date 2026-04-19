@@ -64,13 +64,41 @@
       const newPosts = queued.filter(p => !existingIds.has(p.id));
       posts = maybeTruncate([...newPosts, ...posts]);
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToTop();
   }
 
-  function handleScroll() {
-    const atTop = window.scrollY < 50;
-    setAtTop(atTop);
+  // Prefers `document.scrollingElement` which is what the browser
+  // actually scrolls; `window.scrollTo` + smooth has shipped off-
+  // behaviour in a couple browsers / extension setups. If smooth
+  // fails or `prefers-reduced-motion` kicks in, the instant fallback
+  // runs so the banner click always ends up at the top.
+  function scrollToTop() {
+    const el = (document.scrollingElement || document.documentElement) as HTMLElement;
+    try {
+      el.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    } catch {
+      el.scrollTop = 0;
+    }
+    // Belt + suspenders: if after 400ms we're still scrolled, force it.
+    setTimeout(() => {
+      if (el.scrollTop > 0) el.scrollTop = 0;
+    }, 400);
   }
+
+  // Track "at-top" reactively so an effect can auto-merge the queue
+  // the moment the user scrolls back into view — no need to click
+  // the banner if they've already come back to the top organically.
+  let atTopState = $state(true);
+  function handleScroll() {
+    atTopState = window.scrollY < 50;
+    setAtTop(atTopState);
+  }
+
+  $effect(() => {
+    if (atTopState && $queuedCount > 0) {
+      mergeQueuedPosts();
+    }
+  });
 
   onMount(() => {
     loadTimeline(true);
@@ -143,9 +171,12 @@
        showing through distractingly. -->
   <div class="home-sticky-bar">
     <FeedToggle active={feedType} onchange={handleFeedChange} />
-
-    <NewPostsBanner count={$queuedCount} onclick={mergeQueuedPosts} />
   </div>
+
+  <!-- Floater renders itself position:fixed so it sits at the top
+       of the viewport regardless of scroll position. Outside the
+       sticky bar so it can't be clipped by overflow rules. -->
+  <NewPostsBanner count={$queuedCount} onclick={mergeQueuedPosts} />
 
   <FeedList
     {posts}

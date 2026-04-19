@@ -168,13 +168,34 @@
       const fresh = queued.filter((p) => !existingIds.has(p.id));
       feedPosts = maybeTruncate([...fresh, ...feedPosts]);
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollToTop();
   }
 
-  function handleScroll() {
-    const atTop = window.scrollY < 50;
-    setAtTop(atTop);
+  function scrollToTop() {
+    const el = (document.scrollingElement || document.documentElement) as HTMLElement;
+    try {
+      el.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    } catch {
+      el.scrollTop = 0;
+    }
+    setTimeout(() => {
+      if (el.scrollTop > 0) el.scrollTop = 0;
+    }, 400);
   }
+
+  // Track at-top reactively so the queue auto-merges as soon as the
+  // user scrolls back into view — matches the home-page behaviour.
+  let atTopState = $state(true);
+  function handleScroll() {
+    atTopState = window.scrollY < 50;
+    setAtTop(atTopState);
+  }
+
+  $effect(() => {
+    if (atTopState && $queuedCount > 0) {
+      mergeQueuedPosts();
+    }
+  });
 
   // Mirror the home-timeline / profile-page pattern so submitting a
   // post appears on the Local/Global tab immediately (as a washed-out
