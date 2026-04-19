@@ -17,6 +17,9 @@
   let allowUnfurl: boolean = $state(true);
   let dmPreference: string = $state('everyone');
   let groupDmOptIn: boolean = $state(false);
+  type InvitePref = 'anyone' | 'only_follows' | 'nobody';
+  let allowGroupInvites: InvitePref = $state('anyone');
+  let allowPageInvites: InvitePref = $state('anyone');
   let loaded = $state(false);
   let defaultVisibility = $state<string>('public');
   let autoLoadRemoteMedia = $state(true);
@@ -37,6 +40,8 @@
       isLocked = state.user.is_locked ?? false;
       discoverable = (state.user as any).discoverable ?? true;
       allowUnfurl = (state.user as any).allow_unfurl ?? true;
+      allowGroupInvites = ((state.user as any).allow_group_invites ?? 'anyone') as InvitePref;
+      allowPageInvites = ((state.user as any).allow_page_invites ?? 'anyone') as InvitePref;
     }
 
     // Load default visibility from local preferences
@@ -65,6 +70,8 @@
         is_locked: isLocked,
         discoverable,
         allow_unfurl: allowUnfurl,
+        allow_group_invites: allowGroupInvites,
+        allow_page_invites: allowPageInvites,
       } as any);
       setUser(updated);
 
@@ -96,6 +103,38 @@
         <span class="setting-description">Manually approve follow requests</span>
       </div>
       <Toggle bind:checked={isLocked} name="locked" />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Group invites</span>
+        <span class="setting-description">
+          Who can invite you into a group. "Only people I follow" treats
+          the existing follow graph as your allow-list. "Nobody" rejects
+          invites at the database level — no notification, no pending
+          row, just a polite 403 to the inviter.
+        </span>
+      </div>
+      <select class="setting-select" bind:value={allowGroupInvites}>
+        <option value="anyone">Anyone</option>
+        <option value="only_follows">Only people I follow</option>
+        <option value="nobody">Nobody</option>
+      </select>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Page manager invites</span>
+        <span class="setting-description">
+          Who can invite you to co-manage an organization page. Same
+          three-way policy as group invites.
+        </span>
+      </div>
+      <select class="setting-select" bind:value={allowPageInvites}>
+        <option value="anyone">Anyone</option>
+        <option value="only_follows">Only people I follow</option>
+        <option value="nobody">Nobody</option>
+      </select>
     </div>
 
     <div class="setting-row">
@@ -241,6 +280,22 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
+  }
+
+  .setting-select {
+    min-width: 180px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface-container-lowest, #fff);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .setting-select:focus {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
   }
 
   .setting-info {

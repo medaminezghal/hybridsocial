@@ -5,7 +5,7 @@ defmodule Hybridsocial.Pages do
   import Ecto.Query
   alias Hybridsocial.Repo
   alias Hybridsocial.Accounts.{Identity, Organization}
-  alias Hybridsocial.Pages.{Branding, OrganizationRole}
+  alias Hybridsocial.Pages.{Branding, OrganizationRole, PageInvite}
 
   # ---------------------------------------------------------------------------
   # Page lifecycle
@@ -241,6 +241,93 @@ defmodule Hybridsocial.Pages do
     else
       false -> {:error, :forbidden}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Invites (manager nominations)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Sends an invite offering page-manager role. The inviter must
+  already manage (or own) the page. The invited identity's invite
+  preference is consulted — a "nobody" or "only_follows" setting
+  can reject the invite before a row is written.
+  """
+  def invite_to_page(page_identity_id, inviter_id, invited_id) do
+    with {:ok, _identity, org} <- get_page_with_auth(page_identity_id),
+         true <-
+           org.owner_id == inviter_id or
+             has_role?(page_identity_id, inviter_id, ["admin", "editor"]),
+         :ok <- Hybridsocial.Accounts.InvitePrefs.check(invited_id, inviter_id, :page) do
+      %PageInvite{}
+      |> PageInvite.changeset(%{
+        page_id: page_identity_id,
+        invited_by: inviter_id,
+        invited_id: invited_id
+      })
+      |> Repo.insert()
+    else
+      false -> {:error, :forbidden}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Invited identity accepts a pending page invite."
+  def accept_page_invite(invite_id, identity_id) do
+    with {:ok, invite} <- get_page_invite(invite_id),
+         true <- invite.invited_id == identity_id || {:error, :forbidden},
+         true <- invite.status == "pending" || {:error, :already_resolved} do
+      Ecto.Multi.new()
+      |> Ecto.Multi.update(:invite, PageInvite.changeset(invite, %{status: "accepted"}))
+      |> Ecto.Multi.insert(:role, fn _ ->
+        %OrganizationRole{}
+        |> OrganizationRole.changeset(%{
+          organization_id: invite.page_id,
+          identity_id: identity_id,
+          # New managers start as editor by default; an existing
+          # admin can promote them to "admin" later via the role
+          # management UI. Limits blast radius if the invite was
+          # accidental.
+          role: "editor",
+          granted_by: invite.invited_by
+        })
+      end)
+      |> Repo.transaction()
+      |> case do
+        {:ok, %{invite: invite}} -> {:ok, invite}
+        {:error, _, changeset, _} -> {:error, changeset}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Invited identity declines a pending page invite."
+  def decline_page_invite(invite_id, identity_id) do
+    with {:ok, invite} <- get_page_invite(invite_id),
+         true <- invite.invited_id == identity_id || {:error, :forbidden} do
+      invite
+      |> PageInvite.changeset(%{status: "declined"})
+      |> Repo.update()
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Lists pending invites sent TO this identity."
+  def pending_page_invites(invited_id) do
+    PageInvite
+    |> where([i], i.invited_id == ^invited_id and i.status == "pending")
+    |> order_by([i], desc: i.inserted_at)
+    |> Repo.all()
+    |> Repo.preload([:page, :inviter])
+  end
+
+  defp get_page_invite(id) do
+    case Repo.get(PageInvite, id) do
+      nil -> {:error, :not_found}
+      invite -> {:ok, invite}
     end
   end
 

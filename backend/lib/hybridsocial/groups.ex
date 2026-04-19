@@ -435,7 +435,13 @@ defmodule Hybridsocial.Groups do
 
   def invite_to_group(group_id, inviter_id, invited_id) do
     with {:ok, _group} <- get_existing_group(group_id),
-         true <- member?(group_id, inviter_id) || {:error, :not_member} do
+         true <- member?(group_id, inviter_id) || {:error, :not_member},
+         :ok <-
+           Hybridsocial.Accounts.InvitePrefs.check(
+             invited_id,
+             inviter_id,
+             :group
+           ) do
       %GroupInvite{}
       |> GroupInvite.changeset(%{
         group_id: group_id,

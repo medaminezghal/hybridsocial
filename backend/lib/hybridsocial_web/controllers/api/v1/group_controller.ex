@@ -183,6 +183,16 @@ defmodule HybridsocialWeb.Api.V1.GroupController do
         |> put_status(:forbidden)
         |> json(%{error: "group.not_member"})
 
+      {:error, :invites_disabled} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "invite.disabled_by_recipient"})
+
+      {:error, :invites_restricted} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "invite.recipient_follows_only"})
+
       {:error, changeset} ->
         conn
         |> put_status(:unprocessable_entity)

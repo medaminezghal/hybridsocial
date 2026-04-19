@@ -188,6 +188,101 @@ defmodule HybridsocialWeb.Api.V1.PageController do
   end
 
   # ---------------------------------------------------------------------------
+  # Manager invites (mirror of Groups.invite flow)
+  # ---------------------------------------------------------------------------
+
+  @doc "POST /api/v1/pages/:id/invite — inviter must be owner / admin / editor."
+  def invite(conn, %{"id" => id} = params) do
+    identity = conn.assigns.current_identity
+    invited_id = params["invited_id"]
+
+    case Pages.invite_to_page(id, identity.id, invited_id) do
+      {:ok, invite} ->
+        conn |> put_status(:created) |> json(serialize_invite(invite))
+
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "page.not_found"})
+
+      {:error, :forbidden} ->
+        conn |> put_status(:forbidden) |> json(%{error: "page.forbidden"})
+
+      {:error, :invites_disabled} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "invite.disabled_by_recipient"})
+
+      {:error, :invites_restricted} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "invite.recipient_follows_only"})
+
+      {:error, changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "validation.failed", details: format_errors(changeset)})
+    end
+  end
+
+  @doc "GET /api/v1/pages/invites — pending invites addressed to me."
+  def my_invites(conn, _params) do
+    identity = conn.assigns.current_identity
+    invites = Pages.pending_page_invites(identity.id)
+    json(conn, Enum.map(invites, &serialize_invite/1))
+  end
+
+  @doc "POST /api/v1/pages/invites/:invite_id/accept"
+  def accept_invite(conn, %{"invite_id" => invite_id}) do
+    identity = conn.assigns.current_identity
+
+    case Pages.accept_page_invite(invite_id, identity.id) do
+      {:ok, invite} ->
+        json(conn, serialize_invite(invite))
+
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "invite.not_found"})
+
+      {:error, :forbidden} ->
+        conn |> put_status(:forbidden) |> json(%{error: "invite.forbidden"})
+
+      {:error, :already_resolved} ->
+        conn |> put_status(:conflict) |> json(%{error: "invite.already_resolved"})
+
+      {:error, _} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "invite.accept_failed"})
+    end
+  end
+
+  @doc "POST /api/v1/pages/invites/:invite_id/decline"
+  def decline_invite(conn, %{"invite_id" => invite_id}) do
+    identity = conn.assigns.current_identity
+
+    case Pages.decline_page_invite(invite_id, identity.id) do
+      {:ok, invite} ->
+        json(conn, serialize_invite(invite))
+
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "invite.not_found"})
+
+      {:error, :forbidden} ->
+        conn |> put_status(:forbidden) |> json(%{error: "invite.forbidden"})
+
+      {:error, _} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "invite.decline_failed"})
+    end
+  end
+
+  defp serialize_invite(invite) do
+    %{
+      id: invite.id,
+      page_id: invite.page_id,
+      invited_by: invite.invited_by,
+      invited_id: invite.invited_id,
+      status: invite.status,
+      created_at: invite.inserted_at
+    }
+  end
+
+  # ---------------------------------------------------------------------------
   # Serializers
   # ---------------------------------------------------------------------------
 

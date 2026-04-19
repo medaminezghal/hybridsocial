@@ -391,6 +391,12 @@ defmodule HybridsocialWeb.Router do
     post "/:id/roles", PageController, :add_role
     delete "/:id/roles/:role_id", PageController, :remove_role
     patch "/:id/branding", PageController, :update_branding
+
+    # Manager invites (mirror of /groups/:id/invite flow).
+    get "/invites", PageController, :my_invites
+    post "/:id/invite", PageController, :invite
+    post "/invites/:invite_id/accept", PageController, :accept_invite
+    post "/invites/:invite_id/decline", PageController, :decline_invite
   end
 
   # Pages (public / optional auth)

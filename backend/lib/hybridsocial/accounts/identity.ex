@@ -22,6 +22,12 @@ defmodule Hybridsocial.Accounts.Identity do
     field :bio, :string
     field :metadata, :map, default: %{}
     field :is_locked, :boolean, default: false
+    # Who can invite this identity into a group or organization
+    # (page). Values: "anyone" (default), "only_follows" (only users
+    # this identity follows can invite them), "nobody" (all invites
+    # rejected at the DB level before any notification fires).
+    field :allow_group_invites, :string, default: "anyone"
+    field :allow_page_invites, :string, default: "anyone"
     field :is_bot, :boolean, default: false
     field :is_admin, :boolean, default: false
     field :is_suspended, :boolean, default: false
@@ -97,6 +103,8 @@ defmodule Hybridsocial.Accounts.Identity do
     :header_url,
     :metadata,
     :is_locked,
+    :allow_group_invites,
+    :allow_page_invites,
     :show_badge,
     :birthday,
     :discoverable,
@@ -115,6 +123,8 @@ defmodule Hybridsocial.Accounts.Identity do
     |> validate_length(:bio, max: 500)
     |> validate_length(:avatar_url, max: 2048)
     |> validate_length(:header_url, max: 2048)
+    |> validate_inclusion(:allow_group_invites, ~w(anyone only_follows nobody))
+    |> validate_inclusion(:allow_page_invites, ~w(anyone only_follows nobody))
     |> reject_display_name_change_if_verified()
     |> reject_bot_change_if_forced(identity)
     |> reject_type_change_on_main_account(identity)
