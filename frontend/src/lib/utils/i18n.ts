@@ -44,6 +44,11 @@ const ERROR_FALLBACKS: Record<string, string> = {
   'auth.captcha_failed': 'Captcha verification failed. Please try again.',
   'auth.email_domain_banned': 'Registration from this email domain is not allowed.',
   'auth.handle_reserved': 'This handle is reserved and cannot be used.',
+  'auth.invite_required': 'An invite code is required to register on this instance.',
+  'auth.invalid_invite_code': 'This invite code is invalid.',
+  'auth.invite_disabled': 'This invite code has been disabled.',
+  'auth.invite_expired': 'This invite code has expired. Ask the person who sent it for a new one.',
+  'auth.invite_max_uses_reached': 'This invite code has already been used up.',
   'rate_limit.exceeded': 'Too many requests. Please wait a moment.',
   'account.confirmation_required': 'Please check your email to confirm your account.',
 };

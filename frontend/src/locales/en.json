@@ -105,6 +105,11 @@
   "error.auth.captcha_failed": "Captcha verification failed. Please try again.",
   "error.auth.email_domain_banned": "Registration from this email domain is not allowed",
   "error.auth.handle_reserved": "This handle is reserved and cannot be used",
+  "error.auth.invite_required": "An invite code is required to register on this instance",
+  "error.auth.invalid_invite_code": "This invite code is invalid",
+  "error.auth.invite_disabled": "This invite code has been disabled",
+  "error.auth.invite_expired": "This invite code has expired. Ask the person who sent it for a new one.",
+  "error.auth.invite_max_uses_reached": "This invite code has already been used up",
 
   "error.2fa.invalid_code": "Invalid two-factor code. Please check and try again.",
   "error.2fa.setup_failed": "Failed to set up two-factor authentication",
