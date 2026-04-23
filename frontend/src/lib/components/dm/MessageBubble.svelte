@@ -66,9 +66,11 @@
 
   // Conservative guesses for where the picker needs room. The picker
   // isn't mounted yet at the moment we decide placement, so it can't
-  // be measured — these match the 2-row emoji layout.
+  // be measured — these match the 2-row emoji layout plus a small
+  // buffer so a loaded premium catalog doesn't overflow unexpectedly.
   const PICKER_ESTIMATED_HEIGHT = 140;
-  const PICKER_ESTIMATED_WIDTH = 240;
+  const PICKER_ESTIMATED_WIDTH = 320;
+  const VIEWPORT_SAFETY_PAD = 12;
 
   $effect(() => {
     if (!pickerOpen || !reactionButtonEl) return;
@@ -80,7 +82,8 @@
     // Horizontal: default is opening rightward from the button's left
     // edge. Flip to leftward only when opening rightward would push
     // the picker past the viewport's right edge.
-    pickerOpensLeft = rect.left + PICKER_ESTIMATED_WIDTH > window.innerWidth;
+    pickerOpensLeft =
+      rect.left + PICKER_ESTIMATED_WIDTH + VIEWPORT_SAFETY_PAD > window.innerWidth;
   });
 
   // Debounce timers for the hover-open picker. Open after a short
