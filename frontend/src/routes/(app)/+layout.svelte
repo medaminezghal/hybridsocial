@@ -14,6 +14,7 @@
   import { subscribeToPush } from '$lib/utils/push.js';
   import { loadFilters } from '$lib/stores/content-filters.js';
   import PostComposer from '$lib/components/post/PostComposer.svelte';
+  import SudoModal from '$lib/components/admin/SudoModal.svelte';
   import { onDestroy } from 'svelte';
   import { page } from '$app/state';
 
@@ -90,6 +91,11 @@
        an open-composer event from /messages/new (where the FAB is
        hidden). The FAB itself stays hidden on messages/admin/settings. -->
   <PostComposer showFab={showComposer} />
+  <!-- Global step-up challenge: any admin-gated call outside /admin
+       (moderation panel on profiles, etc.) that 403s with
+       auth.sudo_required lands here so the user can unlock without
+       detouring through the admin dashboard. -->
+  <SudoModal />
   {#if showOnboarding}
     <OnboardingModal onclose={() => { showOnboarding = false; }} />
   {/if}
