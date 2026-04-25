@@ -6,7 +6,7 @@ defmodule Hybridsocial.Media do
 
   alias Hybridsocial.Antivirus
   alias Hybridsocial.Repo
-  alias Hybridsocial.Media.{MediaFile, Storage, Validator, Hash, Filter, Audio}
+  alias Hybridsocial.Media.{MediaFile, Storage, Validator, Hash, Filter, Audio, ImageOptimizer}
 
   @doc """
   Uploads a file: validates magic bytes, validates size, stores to disk, creates DB record.
@@ -16,30 +16,51 @@ defmodule Hybridsocial.Media do
   def upload(identity_id, %Plug.Upload{path: path, filename: filename} = upload) do
     with {:ok, binary_data} <- File.read(path),
          {:ok, content_type} <- Validator.validate_content_type(binary_data),
-         file_size <- byte_size(binary_data),
-         :ok <- Validator.validate_file_size(file_size, content_type),
+         original_size <- byte_size(binary_data),
+         :ok <- Validator.validate_file_size(original_size, content_type),
          :ok <- Antivirus.scan(binary_data),
          :ok <- Hash.check_upload(path),
          :ok <- Validator.strip_metadata(path),
          {:ok, filtered} <-
-           Filter.filter(%{path: path, filename: filename, content_type: content_type}),
-         {:ok, storage_path} <-
-           Storage.store(
-             %{upload | content_type: content_type, filename: filtered.filename},
-             identity_id
-           ) do
-      attrs = %{
-        identity_id: identity_id,
-        content_type: content_type,
-        file_size: file_size,
-        storage_path: storage_path,
-        processing_status: "ready",
-        metadata: %{"original_filename" => filename}
-      }
+           Filter.filter(%{path: path, filename: filename, content_type: content_type}) do
+      # Resize / recompress / strip-metadata for image uploads. Runs
+      # before the storage step so what S3 / disk sees is already the
+      # optimized blob — no second-pass post-processing job needed.
+      # Falls through with the original on any failure.
+      {final_path, final_content_type, final_size} =
+        case ImageOptimizer.optimize(path, content_type) do
+          {:ok, optimized_path, ct, size} -> {optimized_path, ct, size}
+          {:skip, ^path, ct, size} -> {path, ct, size}
+        end
 
-      %MediaFile{}
-      |> MediaFile.create_changeset(attrs)
-      |> Repo.insert()
+      try do
+        with {:ok, storage_path} <-
+               Storage.store(
+                 %{upload | path: final_path, content_type: final_content_type, filename: filtered.filename},
+                 identity_id
+               ) do
+          attrs = %{
+            identity_id: identity_id,
+            content_type: final_content_type,
+            file_size: final_size,
+            storage_path: storage_path,
+            processing_status: "ready",
+            metadata: %{
+              "original_filename" => filename,
+              "original_size" => original_size,
+              "optimized" => final_path != path
+            }
+          }
+
+          %MediaFile{}
+          |> MediaFile.create_changeset(attrs)
+          |> Repo.insert()
+        end
+      after
+        # Clean up the optimizer's tmp file (the original `path` is
+        # cleaned up by Plug after the request finishes).
+        if final_path != path, do: File.rm(final_path)
+      end
     end
   end
 

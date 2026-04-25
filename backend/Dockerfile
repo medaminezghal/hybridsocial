@@ -39,12 +39,16 @@ WORKDIR /app
 # ffmpeg provides `ffprobe`, used to validate audio uploads
 # (duration + stream inspection). Hard dependency for audio posts:
 # Media.Audio.probe/2 fails-closed if ffprobe is missing.
+# vips-tools provides `vipsthumbnail`, used by Media.ImageOptimizer
+# to resize + recompress + strip-metadata for image uploads. Soft
+# dependency: if absent, uploads still succeed but skip optimization.
 RUN apk add --no-cache \
       libstdc++ \
       ncurses-libs \
       ca-certificates \
       postgresql-client \
-      ffmpeg
+      ffmpeg \
+      vips-tools
 
 # Create a non-root user
 RUN addgroup --system app && \
