@@ -16,6 +16,7 @@
     compact = false,
     emptyMessage = 'No posts yet',
     filterContext = 'home',
+    removeOnEvents = [],
     onloadmore,
   }: {
     posts?: FeedEntry[];
@@ -24,6 +25,12 @@
     compact?: boolean;
     emptyMessage?: string;
     filterContext?: string;
+    /**
+     * Additional window events that should trigger the
+     * post-disolve animation (besides the always-on `post-deleted`).
+     * Used by /bookmarks to react to `bookmark-removed`.
+     */
+    removeOnEvents?: string[];
     onloadmore?: () => void;
   } = $props();
 
@@ -110,9 +117,15 @@
 
     window.addEventListener('feed-new-post', handleNewPost);
     window.addEventListener('post-deleted', handlePostDeleted);
+    for (const ev of removeOnEvents) {
+      window.addEventListener(ev, handlePostDeleted);
+    }
     return () => {
       window.removeEventListener('feed-new-post', handleNewPost);
       window.removeEventListener('post-deleted', handlePostDeleted);
+      for (const ev of removeOnEvents) {
+        window.removeEventListener(ev, handlePostDeleted);
+      }
     };
   });
 

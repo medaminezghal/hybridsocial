@@ -280,6 +280,12 @@
     try {
       if (wasBookmarked) {
         await api.delete(`/api/v1/statuses/${post.id}/bookmark`);
+        // Pages that show bookmark-only feeds (e.g. /bookmarks)
+        // listen for this event and animate the row out, matching
+        // the post-deleted dissolve. Other consumers ignore it.
+        window.dispatchEvent(
+          new CustomEvent('bookmark-removed', { detail: { id: post.id } }),
+        );
         window.dispatchEvent(
           new CustomEvent('toast', { detail: { message: 'Bookmark removed', type: 'success' } }),
         );

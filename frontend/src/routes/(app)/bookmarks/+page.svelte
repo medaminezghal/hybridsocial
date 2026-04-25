@@ -54,6 +54,7 @@
     {hasMore}
     onloadmore={() => loadBookmarks(false)}
     emptyMessage="You haven't bookmarked any posts yet"
+    removeOnEvents={['bookmark-removed']}
   />
 </div>
 
