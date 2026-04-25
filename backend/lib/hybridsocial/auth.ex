@@ -85,10 +85,25 @@ defmodule Hybridsocial.Auth do
         # (the WHERE clause in get_refreshable_token excludes it).
         mark_rotated(oauth_token)
 
+        # Carry the still-valid sudo window forward so a token rotation
+        # mid-session doesn't kick the operator out of the admin/mod
+        # tools they just unlocked. If the previous token's sudo
+        # window has already lapsed (or never existed), the new row
+        # gets nil and the user re-confirms — same as before.
+        carry_sudo_until =
+          case oauth_token.sudo_until do
+            %DateTime{} = until ->
+              if DateTime.compare(until, DateTime.utc_now()) == :gt, do: until, else: nil
+
+            _ ->
+              nil
+          end
+
         merged_info = %{
           ip_address: session_info[:ip_address] || oauth_token.ip_address,
           user_agent: session_info[:user_agent] || oauth_token.user_agent,
-          device_name: oauth_token.device_name
+          device_name: oauth_token.device_name,
+          sudo_until: carry_sudo_until
         }
 
         with {:ok, access_token, _claims} <- Token.generate_access_token(oauth_token.identity_id),
@@ -301,7 +316,11 @@ defmodule Hybridsocial.Auth do
         ip_address: session_info[:ip_address],
         user_agent: session_info[:user_agent],
         device_name: device_name,
-        last_active_at: now
+        last_active_at: now,
+        # Refresh carries the still-valid sudo window forward; login
+        # paths leave this as nil and the operator confirms when they
+        # enter /admin or hit a sudo-gated route.
+        sudo_until: session_info[:sudo_until]
       })
       |> Repo.insert()
 
