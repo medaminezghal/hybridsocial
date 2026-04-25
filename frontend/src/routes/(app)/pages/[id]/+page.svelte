@@ -46,8 +46,13 @@
     if (!pageData) return;
     postsLoading = true;
     try {
-      const result = await api.get<Post[]>(`/api/v1/pages/${pageId}/statuses`);
-      posts = Array.isArray(result) ? result : [];
+      // Endpoint returns PaginatedResponse<Post> ({data, next_cursor,
+      // prev_cursor}) — keep the bare-array branch as a fallback in
+      // case an older deploy / proxy still returns the legacy shape.
+      const result = await api.get<{ data?: Post[] } | Post[]>(
+        `/api/v1/pages/${pageId}/statuses`,
+      );
+      posts = Array.isArray(result) ? result : (result.data ?? []);
     } catch {
       posts = [];
     } finally {
