@@ -102,6 +102,7 @@ defmodule Hybridsocial.Social.Post do
       :parent_ap_id,
       :last_activity_at
     ])
+    |> normalize_content()
     |> validate_required([:identity_id])
     |> validate_inclusion(:visibility, @valid_visibilities)
     |> validate_inclusion(:post_type, @valid_post_types)
@@ -122,6 +123,7 @@ defmodule Hybridsocial.Social.Post do
 
     post
     |> cast(attrs, [:content, :content_html, :spoiler_text, :sensitive, :language])
+    |> normalize_content()
     |> validate_edit_window(post)
     |> validate_content_for_type()
     |> validate_length(:content, max: char_limit)
@@ -148,6 +150,42 @@ defmodule Hybridsocial.Social.Post do
     # happened to sort.
     post
     |> change(published_at: published_at, last_activity_at: published_at)
+  end
+
+  # Trim trailing whitespace + collapse runs of empty lines so a post
+  # body doesn't end with phantom blank lines or a stray space after
+  # the last word. Internal blank lines between paragraphs are kept
+  # (one max), so paragraph breaks still survive — only the gratuitous
+  # ones the user didn't mean to leave get cleaned up. Mirrors what
+  # the spoiler_text fields do less aggressively (just trim).
+  defp normalize_content(changeset) do
+    changeset =
+      case get_change(changeset, :content) do
+        content when is_binary(content) ->
+          # Per-line right-trim, then collapse 3+ blank lines down to
+          # 2 (a single empty line separating paragraphs), then strip
+          # leading/trailing whitespace from the whole body.
+          cleaned =
+            content
+            |> String.split("\n")
+            |> Enum.map(&String.trim_trailing/1)
+            |> Enum.join("\n")
+            |> String.replace(~r/\n{3,}/, "\n\n")
+            |> String.trim()
+
+          if cleaned == "", do: put_change(changeset, :content, nil), else: put_change(changeset, :content, cleaned)
+
+        _ ->
+          changeset
+      end
+
+    case get_change(changeset, :spoiler_text) do
+      spoiler when is_binary(spoiler) ->
+        put_change(changeset, :spoiler_text, String.trim(spoiler))
+
+      _ ->
+        changeset
+    end
   end
 
   defp validate_content_for_type(changeset) do
