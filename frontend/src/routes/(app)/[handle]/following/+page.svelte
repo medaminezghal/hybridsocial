@@ -569,8 +569,11 @@
     align-items: center;
   }
 
-  /* Section header — clickable bar that toggles the body. The caret
-     rotates 90° when the section is open so the affordance reads. */
+  /* Section header — clickable bar that toggles the body. Painted
+     with the theme's configured gradient (admin → Theme → Start/End
+     colors) so the directory feels keyed to the instance brand. The
+     caret rotates 90° when the section is open so the affordance
+     reads. */
   .section-header {
     display: flex;
     align-items: center;
@@ -578,21 +581,29 @@
     width: 100%;
     padding: var(--space-3) var(--space-4);
     margin-block-start: var(--space-3);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
+    background: linear-gradient(
+      var(--gradient-direction, 135deg),
+      var(--gradient-start, var(--color-primary)),
+      var(--gradient-end, var(--color-primary-hover, var(--color-primary)))
+    );
+    border: 0;
     border-radius: var(--radius-lg);
     cursor: pointer;
     text-align: start;
-    color: var(--color-text);
+    color: var(--color-text-on-primary, #fff);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    transition: filter 150ms ease, transform 150ms ease;
   }
 
   .section-header:hover {
-    background: var(--color-surface-raised);
+    filter: brightness(1.05);
+    transform: translateY(-1px);
   }
 
   .section-caret {
     font-size: 10px;
-    color: var(--color-text-tertiary);
+    color: inherit;
+    opacity: 0.85;
     transition: transform 150ms ease;
   }
 
@@ -603,20 +614,25 @@
   .section-label {
     font-size: var(--text-base);
     font-weight: 700;
+    color: inherit;
   }
 
+  /* Count pill — translucent white over the gradient so it adapts to
+     whatever brand colors the operator picked without recomputing. */
   .section-count {
     font-size: var(--text-xs);
-    background: var(--color-primary-soft);
-    color: var(--color-primary);
-    padding: 2px 8px;
+    background: rgba(255, 255, 255, 0.22);
+    color: inherit;
+    padding: 2px 10px;
     border-radius: 999px;
     font-weight: 700;
+    backdrop-filter: blur(2px);
   }
 
   .section-hint {
     font-size: var(--text-xs);
-    color: var(--color-text-tertiary);
+    color: inherit;
+    opacity: 0.85;
     margin-inline-start: auto;
     text-align: end;
   }
