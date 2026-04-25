@@ -47,6 +47,7 @@ defmodule Hybridsocial.Accounts.Identity do
     field :is_name_revoked, :boolean, default: false
     field :force_bot, :boolean, default: false
     field :birthday, :date
+    field :location, :string
     field :onboarded_at, :utc_datetime_usec
 
     # Whether this identity appears in public directory listings (new-users
@@ -107,6 +108,7 @@ defmodule Hybridsocial.Accounts.Identity do
     :allow_page_invites,
     :show_badge,
     :birthday,
+    :location,
     :discoverable,
     :allow_unfurl
   ]
@@ -121,6 +123,7 @@ defmodule Hybridsocial.Accounts.Identity do
     |> cast(attrs, fields)
     |> validate_length(:display_name, max: 50)
     |> validate_length(:bio, max: 500)
+    |> validate_length(:location, max: 100)
     |> validate_length(:avatar_url, max: 2048)
     |> validate_length(:header_url, max: 2048)
     |> validate_inclusion(:allow_group_invites, ~w(anyone only_follows nobody))

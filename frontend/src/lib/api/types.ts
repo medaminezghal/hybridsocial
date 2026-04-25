@@ -53,6 +53,9 @@ export interface Identity {
   followers_count: number;
   following_count: number;
   post_count: number;
+  birthday?: string | null;
+  location?: string | null;
+  profile_fields?: { name: string; value: string }[];
   onboarded_at?: string | null;
   created_at: string;
 }

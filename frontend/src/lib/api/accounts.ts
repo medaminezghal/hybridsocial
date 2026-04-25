@@ -18,6 +18,9 @@ export function updateAccount(data: {
   is_bot?: boolean;
   show_badge?: boolean;
   default_visibility?: string;
+  birthday?: string | null;
+  location?: string | null;
+  profile_fields?: { name: string; value: string }[];
 }): Promise<Identity> {
   return api.patch('/api/v1/accounts/update_credentials', data);
 }

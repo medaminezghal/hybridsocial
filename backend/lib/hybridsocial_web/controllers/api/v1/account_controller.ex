@@ -68,6 +68,12 @@ defmodule HybridsocialWeb.Api.V1.AccountController do
       |> Hybridsocial.Repo.update()
     end
 
+    # Splice top-level `profile_fields` into the metadata map so the
+    # client doesn't have to know about the storage layout. Cap at
+    # the user's tier limit (TierLimits.profile_fields). Each entry
+    # is name + value strings, both clamped to keep abuse vectors out.
+    params = stash_profile_fields(params, identity)
+
     case Accounts.update_identity(identity, params) do
       {:ok, updated} ->
         # Re-fetch so onboarded_at change above is reflected
@@ -417,10 +423,82 @@ defmodule HybridsocialWeb.Api.V1.AccountController do
       badges: Hybridsocial.Badges.instance_badges(identity),
       verification_tier: tier,
       is_verified: tier in ["verified_starter", "verified_creator", "verified_pro"],
+      birthday: identity.birthday,
+      location: identity.location,
+      profile_fields: profile_fields_from(identity),
       onboarded_at: identity.onboarded_at,
       created_at: identity.inserted_at
     }
   end
+
+  # Free-form profile metadata pairs (name + value), capped per tier
+  # in TierLimits.profile_fields. Stored under metadata['profile_fields']
+  # so we don't need a dedicated column for what's effectively a
+  # "Mastodon fields" array. Always returns a list so the client can
+  # render unconditionally without an isArray check.
+  defp profile_fields_from(%{metadata: %{} = meta}) do
+    case Map.get(meta, "profile_fields") do
+      list when is_list(list) ->
+        Enum.map(list, fn
+          %{"name" => n, "value" => v} -> %{name: to_string(n), value: to_string(v)}
+          %{name: n, value: v} -> %{name: to_string(n), value: to_string(v)}
+          _ -> nil
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp profile_fields_from(_), do: []
+
+  # Top-level `profile_fields` array on the request body becomes
+  # metadata['profile_fields'] on the row. Tier-capped + per-entry
+  # length-clamped so the client can't push 1000 fields with 10kb
+  # values each. Entries that are missing both keys get dropped.
+  defp stash_profile_fields(%{"profile_fields" => fields} = params, identity)
+       when is_list(fields) do
+    cap = Hybridsocial.Premium.TierLimits.limit(identity, :profile_fields) || 0
+
+    cleaned =
+      fields
+      |> Enum.map(fn entry ->
+        case entry do
+          %{"name" => n, "value" => v} -> %{"name" => clamp(n, 60), "value" => clamp(v, 280)}
+          %{name: n, value: v} -> %{"name" => clamp(n, 60), "value" => clamp(v, 280)}
+          _ -> nil
+        end
+      end)
+      |> Enum.reject(fn e -> is_nil(e) or (e["name"] == "" and e["value"] == "") end)
+      |> Enum.take(cap)
+
+    base_metadata =
+      case identity.metadata do
+        m when is_map(m) -> m
+        _ -> %{}
+      end
+
+    incoming_metadata =
+      case Map.get(params, "metadata") do
+        m when is_map(m) -> m
+        _ -> %{}
+      end
+
+    merged =
+      base_metadata
+      |> Map.merge(incoming_metadata)
+      |> Map.put("profile_fields", cleaned)
+
+    params
+    |> Map.delete("profile_fields")
+    |> Map.put("metadata", merged)
+  end
+
+  defp stash_profile_fields(params, _identity), do: params
+
+  defp clamp(value, max) when is_binary(value), do: value |> String.trim() |> String.slice(0, max)
+  defp clamp(value, max), do: value |> to_string() |> String.trim() |> String.slice(0, max)
 
   # --- Follow Requests ---
 

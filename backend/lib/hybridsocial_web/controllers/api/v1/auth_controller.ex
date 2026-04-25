@@ -237,6 +237,9 @@ defmodule HybridsocialWeb.Api.V1.AuthController do
       show_badge: identity.show_badge,
       badges: Hybridsocial.Badges.instance_badges(identity),
       onboarded_at: identity.onboarded_at,
+      birthday: identity.birthday,
+      location: identity.location,
+      profile_fields: profile_fields_for(identity),
       verification_tier: Hybridsocial.Premium.TierLimits.get_tier(identity),
       limits: Hybridsocial.Premium.TierLimits.limits_for(identity),
       trust_level: identity.trust_level,
@@ -252,6 +255,25 @@ defmodule HybridsocialWeb.Api.V1.AuthController do
       preferences: (identity.user && identity.user.preferences) || %{}
     })
   end
+
+  # Mirror of AccountController.profile_fields_from/1 — same shape so
+  # /auth/me and /accounts/:id stay consistent for the client.
+  defp profile_fields_for(%{metadata: %{} = meta}) do
+    case Map.get(meta, "profile_fields") do
+      list when is_list(list) ->
+        Enum.map(list, fn
+          %{"name" => n, "value" => v} -> %{name: to_string(n), value: to_string(v)}
+          %{name: n, value: v} -> %{name: to_string(n), value: to_string(v)}
+          _ -> nil
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp profile_fields_for(_), do: []
 
   # --- 2FA endpoints ---
 

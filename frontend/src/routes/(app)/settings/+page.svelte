@@ -1,7 +1,7 @@
 <script lang="ts">
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
-  import { authStore, setUser } from '$lib/stores/auth.js';
+  import { authStore, setUser, currentUser } from '$lib/stores/auth.js';
   import { updateAccount, updateAvatar, updateHeader } from '$lib/api/accounts.js';
   import { tError } from '$lib/utils/i18n.js';
   import type { Identity } from '$lib/api/types.js';
@@ -14,6 +14,13 @@
   let avatarUrl: string | null = $state(null);
   let headerUrl: string | null = $state(null);
   let showBadge = $state(true);
+  let birthday = $state('');
+  let location = $state('');
+  // Free-form fields user can publish on their profile (Twitter/Mastodon
+  // "links + facts" section). Per-tier cap from currentUser.limits;
+  // free tier gets 0 (toggle hidden), starter 2, creator 5, pro 10.
+  let profileFields = $state<{ name: string; value: string }[]>([]);
+  let profileFieldsMax = $derived(($currentUser?.limits as { profile_fields?: number } | undefined)?.profile_fields ?? 0);
   let saving = $state(false);
   let saved = $state(false);
   let error: string | null = $state(null);
@@ -29,18 +36,39 @@
       avatarUrl = state.user.avatar_url;
       headerUrl = state.user.header_url;
       showBadge = (state.user as any).show_badge !== false;
+      birthday = state.user.birthday || '';
+      location = state.user.location || '';
+      profileFields = (state.user.profile_fields ?? []).map((f) => ({ name: f.name, value: f.value }));
     }
   });
+
+  function addProfileField() {
+    if (profileFields.length >= profileFieldsMax) return;
+    profileFields = [...profileFields, { name: '', value: '' }];
+  }
+
+  function removeProfileField(i: number) {
+    profileFields = profileFields.filter((_, idx) => idx !== i);
+  }
 
   async function handleSave() {
     saving = true;
     error = null;
     saved = false;
     try {
+      const cleanedFields = profileFields
+        .map((f) => ({ name: f.name.trim(), value: f.value.trim() }))
+        .filter((f) => f.name !== '' || f.value !== '')
+        .slice(0, profileFieldsMax);
+
       const updated = await updateAccount({
         display_name: displayName,
         bio,
         show_badge: showBadge,
+        // Empty strings → null so the row clears, not stores ''.
+        birthday: birthday.trim() === '' ? null : birthday,
+        location: location.trim() === '' ? null : location,
+        profile_fields: cleanedFields,
       });
       setUser(updated);
       saved = true;
@@ -84,6 +112,9 @@
       displayName = state.user.display_name || '';
       bio = state.user.bio || '';
       showBadge = (state.user as any).show_badge !== false;
+      birthday = state.user.birthday || '';
+      location = state.user.location || '';
+      profileFields = (state.user.profile_fields ?? []).map((f) => ({ name: f.name, value: f.value }));
     }
     error = null;
     saved = false;
@@ -171,6 +202,79 @@
           />
           <span class="stitch-hint">Your handle is permanent and cannot be changed. This ensures stable identity across the federation.</span>
         </div>
+
+        <div class="stitch-field-row">
+          <div class="stitch-field">
+            <label class="stitch-label" for="birthday">BIRTHDAY</label>
+            <input
+              id="birthday"
+              type="date"
+              class="stitch-input"
+              bind:value={birthday}
+            />
+            <span class="stitch-hint">Optional. Shown on your profile if set.</span>
+          </div>
+
+          <div class="stitch-field">
+            <label class="stitch-label" for="location">LOCATION</label>
+            <input
+              id="location"
+              type="text"
+              class="stitch-input"
+              bind:value={location}
+              placeholder="City, Country"
+              maxlength="100"
+            />
+          </div>
+        </div>
+
+        {#if profileFieldsMax > 0}
+          <div class="stitch-field">
+            <div class="stitch-fields-header">
+              <span class="stitch-label">PROFILE FIELDS</span>
+              <span class="stitch-hint">{profileFields.length}/{profileFieldsMax}</span>
+            </div>
+            <p class="stitch-hint stitch-fields-help">
+              Free-form pairs (e.g. "Website" / "https://…", "Pronouns" / "she/they"). Visible on your public profile.
+            </p>
+            {#each profileFields as field, i (i)}
+              <div class="stitch-fields-row">
+                <input
+                  type="text"
+                  class="stitch-input stitch-fields-name"
+                  placeholder="Label"
+                  maxlength="60"
+                  bind:value={field.name}
+                />
+                <input
+                  type="text"
+                  class="stitch-input stitch-fields-value"
+                  placeholder="Value"
+                  maxlength="280"
+                  bind:value={field.value}
+                />
+                <button
+                  type="button"
+                  class="stitch-fields-remove"
+                  onclick={() => removeProfileField(i)}
+                  aria-label="Remove field"
+                  title="Remove"
+                >
+                  ✕
+                </button>
+              </div>
+            {/each}
+            {#if profileFields.length < profileFieldsMax}
+              <button type="button" class="stitch-btn-ghost stitch-fields-add" onclick={addProfileField}>
+                + Add field
+              </button>
+            {/if}
+          </div>
+        {:else}
+          <p class="stitch-hint stitch-fields-help">
+            Custom profile fields are available on Starter tier and above.
+          </p>
+        {/if}
 
         <!-- Show badge toggle -->
         <div class="stitch-toggle-row">
@@ -368,6 +472,68 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  /* Two-up grid: birthday + location side by side on wide screens,
+     stacked on phones. */
+  .stitch-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  @media (max-width: 600px) {
+    .stitch-field-row {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .stitch-fields-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .stitch-fields-help {
+    margin: 0 0 8px;
+  }
+
+  .stitch-fields-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-block-end: 8px;
+  }
+
+  .stitch-fields-name {
+    flex: 0 0 30%;
+    min-width: 0;
+  }
+
+  .stitch-fields-value {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .stitch-fields-remove {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--color-border);
+    background: transparent;
+    border-radius: var(--radius-md);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+
+  .stitch-fields-remove:hover {
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .stitch-fields-add {
+    align-self: flex-start;
+    margin-block-start: 4px;
   }
 
   .stitch-label {
