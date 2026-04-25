@@ -49,9 +49,18 @@ defmodule HybridsocialWeb.Api.V1.GroupController do
         |> json(%{error: "group.not_found"})
 
       group ->
+        viewer_id = viewer_id(conn)
+
         conn
         |> put_status(:ok)
-        |> json(serialize_group(group))
+        |> json(serialize_group(group, viewer_id))
+    end
+  end
+
+  defp viewer_id(conn) do
+    case conn.assigns[:current_identity] do
+      %{id: id} -> id
+      _ -> nil
     end
   end
 
@@ -355,7 +364,20 @@ defmodule HybridsocialWeb.Api.V1.GroupController do
   # Serialization
   # ---------------------------------------------------------------------------
 
-  defp serialize_group(group) do
+  defp serialize_group(group, viewer_id \\ nil) do
+    {is_member, role} =
+      case viewer_id do
+        nil ->
+          {false, nil}
+
+        id ->
+          case Groups.get_membership(group.id, id) do
+            nil -> {false, nil}
+            %{status: :approved, role: r} -> {true, r}
+            %{status: status, role: r} -> {false, r |> to_string_or_nil() |> tag_status(status)}
+          end
+      end
+
     %{
       id: group.id,
       name: group.name,
@@ -368,9 +390,21 @@ defmodule HybridsocialWeb.Api.V1.GroupController do
       member_count: group.member_count,
       post_count: group.post_count,
       created_by: group.created_by,
-      created_at: group.inserted_at
+      created_at: group.inserted_at,
+      is_member: is_member,
+      role: role
     }
   end
+
+  defp to_string_or_nil(nil), do: nil
+  defp to_string_or_nil(v) when is_atom(v), do: Atom.to_string(v)
+  defp to_string_or_nil(v), do: v
+
+  # If membership exists but isn't `:active` (pending / banned), keep
+  # the role string but suffix the status so the UI can show the right
+  # state. The frontend currently only needs is_member; this is just
+  # forward-friendly.
+  defp tag_status(role, status), do: "#{role || "member"}:#{status}"
 
   defp serialize_member(member) do
     identity = Hybridsocial.Accounts.get_identity(member.identity_id)

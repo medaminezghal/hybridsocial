@@ -121,7 +121,9 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
       tags: tags,
       emojis: emojis,
       reactions: reactions,
-      media_attachments: media_attachments
+      media_attachments: media_attachments,
+      group: group_summary_for(post),
+      page: page_summary_for(post)
     }
     |> maybe_put_staff_fields(post, is_staff?)
   end
@@ -236,7 +238,9 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
         tags: tags,
         emojis: emojis,
         reactions: Map.get(reactions_breakdown, post.id, []),
-        media_attachments: Map.get(media_by_post, post.id, [])
+        media_attachments: Map.get(media_by_post, post.id, []),
+        group: group_summary_for(post),
+        page: page_summary_for(post)
       }
       |> maybe_put_staff_fields(post, is_staff?)
     end)
@@ -521,6 +525,27 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
   end
 
   defp extract_mentions(_), do: []
+
+  # Compact group/page summary so a post rendered in a feed can show
+  # a "from <Group>" / "from <Page>" chip without the client needing
+  # an extra round trip to /api/v1/groups/:id.
+  defp group_summary_for(%{group_id: nil}), do: nil
+
+  defp group_summary_for(%{group_id: id}) when is_binary(id) do
+    case Repo.get(Hybridsocial.Groups.Group, id) do
+      nil -> nil
+      g -> %{id: g.id, name: g.name, avatar_url: g.avatar_url, visibility: g.visibility}
+    end
+  end
+
+  defp page_summary_for(%{page_id: nil}), do: nil
+
+  defp page_summary_for(%{page_id: id}) when is_binary(id) do
+    case Repo.get(Hybridsocial.Pages.Page, id) do
+      nil -> nil
+      p -> %{id: p.id, name: Map.get(p, :title) || Map.get(p, :name), avatar_url: Map.get(p, :avatar_url)}
+    end
+  end
 
   defp tags_for(post_id) do
     {:ok, post_uuid} = Ecto.UUID.dump(post_id)

@@ -3,6 +3,7 @@ defmodule HybridsocialWeb.Api.V1.PageController do
 
   alias Hybridsocial.Pages
   import HybridsocialWeb.Helpers.Pagination, only: [clamp_limit: 1]
+  import Ecto.Query, only: [where: 3, order_by: 3, limit: 2]
 
   # ---------------------------------------------------------------------------
   # Page CRUD
@@ -45,6 +46,62 @@ defmodule HybridsocialWeb.Api.V1.PageController do
       page ->
         branding = Pages.get_branding(id)
         json(conn, serialize_page(page, branding))
+    end
+  end
+
+  @doc """
+  GET /api/v1/pages/:id/statuses
+
+  Returns posts authored to this page, newest first. Mirrors the
+  shape of /api/v1/timelines/list/:id (PaginatedResponse<Post>) so
+  the frontend FeedList can render it without a special case.
+  """
+  def statuses(conn, %{"id" => id} = params) do
+    case Pages.get_page(id) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "page.not_found"})
+
+      _page ->
+        viewer_id =
+          case conn.assigns[:current_identity] do
+            %{id: vid} -> vid
+            _ -> nil
+          end
+
+        limit = clamp_limit(params["limit"])
+        cursor = params["cursor"] || params["max_id"]
+
+        posts =
+          Hybridsocial.Social.Post
+          |> where([p], p.page_id == ^id)
+          |> where([p], is_nil(p.deleted_at))
+          |> where([p], is_nil(p.hidden_at))
+          |> maybe_apply_cursor(cursor)
+          |> order_by([p], desc: p.inserted_at)
+          |> limit(^limit)
+          |> Hybridsocial.Repo.all()
+
+        serialized =
+          HybridsocialWeb.Serializers.PostSerializer.serialize_many(posts,
+            current_identity_id: viewer_id
+          )
+
+        next_cursor =
+          case List.last(posts) do
+            nil -> nil
+            last -> last.id
+          end
+
+        json(conn, %{data: serialized, next_cursor: next_cursor, prev_cursor: nil})
+    end
+  end
+
+  defp maybe_apply_cursor(query, nil), do: query
+
+  defp maybe_apply_cursor(query, cursor) when is_binary(cursor) do
+    case Hybridsocial.Repo.get(Hybridsocial.Social.Post, cursor) do
+      %{inserted_at: ts} -> where(query, [p], p.inserted_at < ^ts)
+      _ -> query
     end
   end
 

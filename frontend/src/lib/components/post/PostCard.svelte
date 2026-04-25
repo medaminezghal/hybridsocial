@@ -349,6 +349,20 @@
         {/if}
       </div>
 
+      {#if (post as any).group}
+        {@const g = (post as any).group}
+        <a class="post-scope-chip" href={`/groups/${g.id}`} onclick={(e) => e.stopPropagation()}>
+          <span class="material-symbols-outlined" aria-hidden="true">groups</span>
+          <span class="post-scope-label">Posted in <strong>{g.name}</strong></span>
+        </a>
+      {:else if (post as any).page}
+        {@const p = (post as any).page}
+        <a class="post-scope-chip" href={`/pages/${p.id}`} onclick={(e) => e.stopPropagation()}>
+          <span class="material-symbols-outlined" aria-hidden="true">description</span>
+          <span class="post-scope-label">Posted on <strong>{p.name}</strong></span>
+        </a>
+      {/if}
+
       {#if post.parent_id}
         <div class="post-reply-indicator">
           <span class="material-symbols-outlined reply-icon" aria-hidden="true">reply</span>
@@ -870,6 +884,37 @@
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
     margin-block-end: 4px;
+  }
+
+  /* "Posted in <Group>" / "Posted on <Page>" chip — sits between
+     the author row and the post body so it's clear the post lives
+     inside a container, not on the author's personal feed. */
+  .post-scope-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-block-end: 8px;
+    padding: 4px 10px;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+    border-radius: 999px;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    text-decoration: none;
+    width: fit-content;
+  }
+
+  .post-scope-chip:hover {
+    text-decoration: none;
+    filter: brightness(1.05);
+  }
+
+  .post-scope-chip .material-symbols-outlined {
+    font-size: 14px;
+  }
+
+  .post-scope-label strong {
+    font-weight: 700;
   }
 
   .reply-icon {

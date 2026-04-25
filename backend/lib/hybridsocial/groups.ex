@@ -296,6 +296,13 @@ defmodule Hybridsocial.Groups do
     |> Repo.exists?()
   end
 
+  @doc "Returns the GroupMember row for the given pair, or nil."
+  def get_membership(group_id, identity_id) do
+    GroupMember
+    |> where([m], m.group_id == ^group_id and m.identity_id == ^identity_id)
+    |> Repo.one()
+  end
+
   def member_role(group_id, identity_id) do
     GroupMember
     |> where(

@@ -413,6 +413,7 @@ defmodule HybridsocialWeb.Router do
     get "/:id", PageController, :show
     get "/:id/roles", PageController, :roles
     get "/:id/branding", PageController, :branding
+    get "/:id/statuses", PageController, :statuses
   end
 
   # Conversations / Direct Messaging (authenticated)
