@@ -301,12 +301,15 @@
     background: var(--color-surface-raised);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xl);
-    overflow: hidden;
+    /* No overflow clipping on the card so the moderation popover can
+       escape downward. The banner clips itself. */
   }
 
   .profile-banner {
     height: 180px;
     overflow: hidden;
+    border-top-left-radius: var(--radius-xl);
+    border-top-right-radius: var(--radius-xl);
   }
 
   .banner-img {

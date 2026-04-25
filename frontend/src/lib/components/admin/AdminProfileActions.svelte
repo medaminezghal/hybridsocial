@@ -611,6 +611,9 @@
   .admin-profile-section {
     position: relative;
     display: inline-flex;
+    /* Lift above neighbouring cards (admin-bar, feed cards, etc.)
+       so the popover doesn't end up occluded by them. */
+    z-index: 40;
   }
 
   .admin-profile-toggle {
@@ -656,6 +659,8 @@
     flex-direction: column;
     gap: var(--space-3);
     animation: admin-popover-in 0.16s ease;
+    /* Sit above the admin-bar / feed cards that follow the header. */
+    z-index: 50;
   }
 
   @keyframes admin-popover-in {

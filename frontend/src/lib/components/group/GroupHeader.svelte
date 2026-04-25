@@ -99,13 +99,17 @@
   .group-header {
     background: var(--color-surface-raised);
     border-radius: var(--radius-lg);
-    overflow: hidden;
     border: 1px solid var(--color-border);
+    /* Don't clip overflow on the card itself — the moderation popover
+       anchored to the staff icon needs to escape the card. The cover
+       image clips itself instead. */
   }
 
   .cover-image {
     height: 160px;
     overflow: hidden;
+    border-top-left-radius: var(--radius-lg);
+    border-top-right-radius: var(--radius-lg);
   }
 
   .cover-img {
@@ -117,6 +121,8 @@
   .cover-placeholder {
     height: 100px;
     background: linear-gradient(var(--gradient-direction), var(--gradient-start), var(--gradient-end));
+    border-top-left-radius: var(--radius-lg);
+    border-top-right-radius: var(--radius-lg);
   }
 
   .header-body {

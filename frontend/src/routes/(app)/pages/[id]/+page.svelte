@@ -438,12 +438,15 @@
     background: var(--color-surface-raised);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xl);
-    overflow: hidden;
+    /* No overflow clipping — the moderation popover anchored inside
+       .page-actions needs to escape the card. The cover clips itself. */
   }
 
   .page-cover {
     height: 180px;
     overflow: hidden;
+    border-top-left-radius: var(--radius-xl);
+    border-top-right-radius: var(--radius-xl);
   }
 
   .cover-img {
