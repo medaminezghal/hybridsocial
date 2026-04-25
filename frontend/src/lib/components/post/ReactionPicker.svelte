@@ -100,13 +100,19 @@
 
 <style>
   .reaction-picker {
-    display: flex;
+    /* Two rows of 7 — first row is the default reactions every user
+       can pick, second row is the premium-tier reactions (muted +
+       disabled for free-tier users). When the premium catalog hasn't
+       loaded yet (or is empty) the second row collapses, keeping the
+       picker the same width as a single-row default set. */
+    display: grid;
+    grid-template-columns: repeat(7, auto);
     align-items: center;
     gap: var(--space-1);
     padding: var(--space-2);
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-full);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
     transform-origin: bottom center;
     animation: picker-unfold 0.25s cubic-bezier(0.22, 1, 0.36, 1) forwards;
