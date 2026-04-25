@@ -193,6 +193,74 @@ class ApiClient {
     }
     return this.request<T>('POST', path, { body: formData, rawBody: true });
   }
+
+  /**
+   * Upload a file and report progress as a 0..1 fraction. Uses XHR
+   * because `fetch` has no upload-progress event. Falls through the
+   * same 401-refresh-retry the JSON path uses, so a refresh during a
+   * large upload doesn't abort the user's work.
+   */
+  uploadWithProgress<T>(
+    path: string,
+    file: File,
+    fields: Record<string, string> | undefined,
+    onProgress: (fraction: number) => void
+  ): Promise<T> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (fields) {
+      for (const [key, value] of Object.entries(fields)) {
+        formData.append(key, value);
+      }
+    }
+    const url = new URL(`${API_BASE}${path}`, window.location.origin).toString();
+
+    const send = (): Promise<{ status: number; body: unknown }> =>
+      new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.withCredentials = true;
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && e.total > 0) {
+            onProgress(Math.min(1, e.loaded / e.total));
+          }
+        };
+        xhr.onerror = () => reject(new TypeError('Network error during upload'));
+        xhr.onabort = () => reject(new TypeError('Upload aborted'));
+        xhr.onload = () => {
+          let body: unknown;
+          try {
+            body = xhr.responseText ? JSON.parse(xhr.responseText) : undefined;
+          } catch {
+            body = { error: 'unknown_error', error_description: xhr.statusText };
+          }
+          resolve({ status: xhr.status, body });
+        };
+        xhr.send(formData);
+      });
+
+    return (async () => {
+      let { status, body } = await send();
+
+      if (status === 401 && !path.startsWith('/api/v1/auth/')) {
+        await this.doRefresh();
+        onProgress(0);
+        ({ status, body } = await send());
+      }
+
+      if (status >= 200 && status < 300) {
+        onProgress(1);
+        return body as T;
+      }
+
+      const errBody = (body as ApiErrorBody | undefined) ?? {
+        error: 'unknown_error',
+        error_description: `Upload failed (${status})`,
+      };
+      throw new ApiError(status, errBody);
+    })();
+  }
 }
 
 export const api = new ApiClient();

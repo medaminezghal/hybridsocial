@@ -1,11 +1,18 @@
 import { api } from './client.js';
 import type { MediaAttachment } from './types.js';
 
-export function uploadMedia(file: File, description?: string): Promise<MediaAttachment> {
+export function uploadMedia(
+  file: File,
+  description?: string,
+  onProgress?: (fraction: number) => void,
+): Promise<MediaAttachment> {
   const fields: Record<string, string> = {};
   // Backend field is alt_text; the API serializer still exposes it
   // as both `description` and `alt_text` for Mastodon API compat.
   if (description) fields.alt_text = description;
+  if (onProgress) {
+    return api.uploadWithProgress('/api/v1/media', file, fields, onProgress);
+  }
   return api.upload('/api/v1/media', file, fields);
 }
 

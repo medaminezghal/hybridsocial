@@ -375,6 +375,17 @@
     await uploadFiles(files);
   }
 
+  // In-flight progress entries shown in the composer. Each entry
+  // tracks one File the user is uploading so a slow connection sees
+  // a real bar per attachment, not just an "uploading…" toggle.
+  type UploadProgress = {
+    id: string;
+    name: string;
+    size: number;
+    fraction: number;
+  };
+  let uploadingProgress = $state<UploadProgress[]>([]);
+
   // Shared upload path so the file-picker, drag-drop, and paste-image
   // entry points all enforce the same per-post cap, the same error
   // mapping, and append into the same uploadedMedia list.
@@ -401,11 +412,33 @@
     // on tier / size / duration grounds.
     let firstErrorMsg = '';
 
+    // Seed progress entries up front so the bars render immediately
+    // even before the first byte is on the wire.
+    const progressEntries: UploadProgress[] = toUpload.map((f) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      name: f.name,
+      size: f.size,
+      fraction: 0,
+    }));
+    uploadingProgress = [...uploadingProgress, ...progressEntries];
+
+    function setFraction(id: string, fraction: number) {
+      uploadingProgress = uploadingProgress.map((p) =>
+        p.id === id ? { ...p, fraction } : p,
+      );
+    }
+
     try {
       // Upload in parallel — each media goes through media.upload() +
       // optional antivirus which can each be slow; waiting on them
       // sequentially would frustrate anyone attaching 4 photos.
-      const results = await Promise.allSettled(toUpload.map((f) => uploadMedia(f)));
+      const results = await Promise.allSettled(
+        toUpload.map((f, i) =>
+          uploadMedia(f, undefined, (fraction) =>
+            setFraction(progressEntries[i].id, fraction),
+          ),
+        ),
+      );
 
       const succeeded: MediaAttachment[] = [];
       for (const r of results) {
@@ -422,6 +455,8 @@
       }
     } finally {
       mediaUploading = false;
+      const ids = new Set(progressEntries.map((p) => p.id));
+      uploadingProgress = uploadingProgress.filter((p) => !ids.has(p.id));
     }
 
     if (failures > 0 || dropped > 0) {
@@ -434,6 +469,12 @@
       if (dropped > 0) parts.push(`${dropped} skipped (max ${maxMedia})`);
       error = parts.join(' · ');
     }
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   // Translate the backend's upload error codes to human text. The
@@ -1094,7 +1135,7 @@
     </div>
 
     <!-- Media previews -->
-    {#if uploadedMedia.length > 0}
+    {#if uploadedMedia.length > 0 || uploadingProgress.length > 0}
       <div class="media-previews">
         {#each uploadedMedia as media (media.id)}
           {@const ct = (media as any).content_type || ''}
@@ -1138,11 +1179,25 @@
             </button>
           </div>
         {/each}
-        {#if mediaUploading}
-          <div class="media-preview-item media-preview-loading">
-            <span class="spinner" aria-hidden="true"></span>
+        {#each uploadingProgress as up (up.id)}
+          {@const pct = Math.round(up.fraction * 100)}
+          <div class="media-preview-item media-preview-uploading" title={up.name}>
+            <div class="upload-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={pct} aria-label="Uploading {up.name}">
+              <div class="upload-progress-meta">
+                <span class="upload-progress-name">{up.name}</span>
+                <span class="upload-progress-pct">{pct === 100 ? 'Processing…' : pct + '%'}</span>
+              </div>
+              <div class="upload-progress-track">
+                <div
+                  class="upload-progress-fill"
+                  class:upload-progress-fill-indeterminate={pct >= 100}
+                  style="width: {pct}%"
+                ></div>
+              </div>
+              <span class="upload-progress-size">{formatBytes(up.size)}</span>
+            </div>
           </div>
-        {/if}
+        {/each}
       </div>
     {/if}
 
@@ -1851,6 +1906,85 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  /* Per-file upload progress card. Sized to match the other preview
+     tiles in the grid so the layout doesn't jump as files complete. */
+  .media-preview-uploading {
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    background: var(--color-surface);
+    border: 1px dashed var(--color-border);
+    padding: 10px;
+  }
+
+  .upload-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    align-self: center;
+    color: var(--color-text);
+    font-size: 12px;
+  }
+
+  .upload-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .upload-progress-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+
+  .upload-progress-pct {
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .upload-progress-track {
+    width: 100%;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--color-border);
+    overflow: hidden;
+  }
+
+  .upload-progress-fill {
+    height: 100%;
+    background: var(--color-primary);
+    transition: width 120ms linear;
+  }
+
+  /* Once the bytes have all left the browser we still wait on the
+     server's antivirus + decoding. Animate the bar so the user
+     doesn't think the upload stalled. */
+  .upload-progress-fill-indeterminate {
+    background: linear-gradient(
+      90deg,
+      var(--color-primary) 0%,
+      var(--color-primary-hover, var(--color-primary)) 50%,
+      var(--color-primary) 100%
+    );
+    background-size: 200% 100%;
+    animation: upload-shimmer 1.2s linear infinite;
+  }
+
+  @keyframes upload-shimmer {
+    from { background-position: 200% 0; }
+    to   { background-position: -200% 0; }
+  }
+
+  .upload-progress-size {
+    color: var(--color-text-tertiary, var(--color-text-secondary));
+    font-size: 11px;
   }
 
   .media-preview-remove {
