@@ -205,7 +205,7 @@ defmodule Hybridsocial.Auth do
   # The TTL is *rolling* — every successful admin request pushes the
   # expiry out by the same window, so active work doesn't get interrupted
   # but an idle tab times out.
-  @sudo_ttl_seconds 15 * 60
+  @sudo_ttl_seconds 30
 
   def sudo_ttl_seconds, do: @sudo_ttl_seconds
 
