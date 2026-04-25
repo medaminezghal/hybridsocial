@@ -32,12 +32,16 @@
 
   let displayLabel = $derived(label || defaultLabels[type] || type);
   let imgSrc = $derived(badgeImages[type]);
-  let imgSize = $derived(size === 'sm' ? 14 : 18);
+  // The redesigned badges are pill-shaped (~3:1 aspect) instead of
+  // the old square hexes, so locking width to imgSize squished them.
+  // Set height only and let the SVG's intrinsic aspect ratio drive
+  // the rendered width.
+  let imgHeight = $derived(size === 'sm' ? 16 : 22);
 </script>
 
 {#if imgSrc}
   <span class="role-badge badge-{size}" title={displayLabel}>
-    <img src={imgSrc} alt={displayLabel} class="badge-img" width={imgSize} height={imgSize} />
+    <img src={imgSrc} alt={displayLabel} class="badge-img" height={imgHeight} />
   </span>
 {:else}
   <span class="role-badge badge-fallback badge-{type} badge-{size}" title={displayLabel}>
@@ -57,6 +61,7 @@
   .badge-img {
     display: block;
     flex-shrink: 0;
+    width: auto;
   }
 
   .badge-sm {
