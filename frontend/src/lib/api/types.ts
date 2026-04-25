@@ -280,6 +280,16 @@ export interface Group {
   is_member: boolean;
   role: 'owner' | 'admin' | 'moderator' | 'member' | null;
   created_at: string;
+  // Federated actor identity backing this group. Exposed so instance
+  // admins/mods can target the underlying identity with the same
+  // moderation tools used for users (silence, suspend, etc.).
+  identity_id?: string | null;
+  identity?: {
+    id: string;
+    handle: string;
+    display_name: string | null;
+    avatar_url: string | null;
+  } | null;
 }
 
 export interface Relationship {

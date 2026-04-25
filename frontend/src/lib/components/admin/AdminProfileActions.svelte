@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Identity, AdminUser, ModerationNote } from '$lib/api/types.js';
+  import type { AdminUser, ModerationNote } from '$lib/api/types.js';
   import {
     getAdminUser,
     silenceUser,
@@ -16,10 +16,14 @@
     createModerationNote,
   } from '$lib/api/admin.js';
 
+  // The component only needs the identity row's id + handle. Accept
+  // a loose shape so the same panel can target a user, a page (which
+  // is already an identity), or a group's federated actor identity
+  // without forcing every caller to construct a full Identity.
   let {
     account,
   }: {
-    account: Identity;
+    account: { id: string; handle: string };
   } = $props();
 
   let expanded = $state(false);

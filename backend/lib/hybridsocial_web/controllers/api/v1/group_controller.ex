@@ -2,6 +2,7 @@ defmodule HybridsocialWeb.Api.V1.GroupController do
   use HybridsocialWeb, :controller
 
   alias Hybridsocial.Groups
+  alias Hybridsocial.Repo
   import HybridsocialWeb.Helpers.Pagination, only: [clamp_limit: 1]
 
   # POST /api/v1/groups
@@ -378,6 +379,11 @@ defmodule HybridsocialWeb.Api.V1.GroupController do
           end
       end
 
+    # Include the federated actor identity (id + handle) so instance
+    # admins/mods can target the group's identity row with the same
+    # moderation tools used for users (suspend, silence, etc.).
+    group = Repo.preload(group, :identity)
+
     %{
       id: group.id,
       name: group.name,
@@ -392,9 +398,24 @@ defmodule HybridsocialWeb.Api.V1.GroupController do
       created_by: group.created_by,
       created_at: group.inserted_at,
       is_member: is_member,
-      role: role
+      role: role,
+      identity_id: group.identity_id,
+      identity: serialize_actor_identity(group.identity)
     }
   end
+
+  defp serialize_actor_identity(nil), do: nil
+
+  defp serialize_actor_identity(%Hybridsocial.Accounts.Identity{} = identity) do
+    %{
+      id: identity.id,
+      handle: identity.handle,
+      display_name: identity.display_name,
+      avatar_url: identity.avatar_url
+    }
+  end
+
+  defp serialize_actor_identity(_), do: nil
 
   defp to_string_or_nil(nil), do: nil
   defp to_string_or_nil(v) when is_atom(v), do: Atom.to_string(v)

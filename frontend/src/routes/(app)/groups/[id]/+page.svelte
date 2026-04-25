@@ -6,13 +6,14 @@
   import type { Post } from '$lib/api/types.js';
   import type { GroupDetail, GroupMember } from '$lib/api/groups.js';
   import { getGroup, getGroupTimeline, getGroupMembers, joinGroup, leaveGroup, updateGroup, deleteGroup, updateMemberRole, banMember } from '$lib/api/groups.js';
-  import { authStore } from '$lib/stores/auth.js';
+  import { authStore, isStaffMember } from '$lib/stores/auth.js';
   import GroupHeader from '$lib/components/group/GroupHeader.svelte';
   import Tabs from '$lib/components/ui/Tabs.svelte';
   import FeedList from '$lib/components/feed/FeedList.svelte';
   import Avatar from '$lib/components/ui/Avatar.svelte';
   import Spinner from '$lib/components/ui/Spinner.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
+  import AdminProfileActions from '$lib/components/admin/AdminProfileActions.svelte';
 
   let group = $state<GroupDetail | null>(null);
   let posts = $state<Post[]>([]);
@@ -215,6 +216,10 @@
           </button>
         {/if}
       </div>
+    {/if}
+
+    {#if $isStaffMember && !isOwner && group?.identity}
+      <AdminProfileActions account={group.identity} />
     {/if}
 
     <div class="group-content">

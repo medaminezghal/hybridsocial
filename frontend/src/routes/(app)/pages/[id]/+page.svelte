@@ -1,13 +1,16 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import { getPage } from '$lib/api/pages.js';
+  import { goto } from '$app/navigation';
+  import { getPage, updatePage, deletePage } from '$lib/api/pages.js';
   import { api } from '$lib/api/client.js';
+  import { currentUser, isStaffMember } from '$lib/stores/auth.js';
   import type { Post } from '$lib/api/types.js';
   import Avatar from '$lib/components/ui/Avatar.svelte';
   import Tabs from '$lib/components/ui/Tabs.svelte';
   import FeedList from '$lib/components/feed/FeedList.svelte';
   import Spinner from '$lib/components/ui/Spinner.svelte';
+  import AdminProfileActions from '$lib/components/admin/AdminProfileActions.svelte';
 
   let pageId = $state('');
   let pageData: any = $state(null);
@@ -18,6 +21,81 @@
   let postsLoading = $state(false);
   let isFollowing = $state(false);
   let followLoading = $state(false);
+
+  // Owner detection — backend serialize_page returns
+  // organization.owner_id (the identity_id of the page's creator).
+  // Compare against the current user so the Edit/Delete bar only
+  // appears for the actual owner. Instance admins/mods see the
+  // existing AdminProfileActions component on the page header
+  // since pages are identities; their moderation tools live there.
+  let isOwner = $derived(
+    !!pageData &&
+      !!$currentUser &&
+      pageData.organization?.owner_id === $currentUser.id,
+  );
+
+  // Edit dialog state
+  let showEditDialog = $state(false);
+  let editForm = $state({
+    display_name: '',
+    bio: '',
+    avatar_url: '',
+    header_url: '',
+    website: '',
+    category: '',
+  });
+  let editSaving = $state(false);
+  let editError = $state('');
+
+  // Delete confirm
+  let showDeleteConfirm = $state(false);
+  let deleting = $state(false);
+
+  function openEditDialog() {
+    if (!pageData) return;
+    editForm = {
+      display_name: pageData.display_name || '',
+      bio: pageData.bio || '',
+      avatar_url: pageData.avatar_url || '',
+      header_url: pageData.header_url || '',
+      website: pageData.organization?.website || pageData.website || '',
+      category: pageData.organization?.category || pageData.category || '',
+    };
+    editError = '';
+    showEditDialog = true;
+  }
+
+  async function saveEdit() {
+    editSaving = true;
+    editError = '';
+    try {
+      const updated = await updatePage(pageId, {
+        display_name: editForm.display_name.trim() || null,
+        bio: editForm.bio.trim() || null,
+        avatar_url: editForm.avatar_url.trim() || null,
+        header_url: editForm.header_url.trim() || null,
+        website: editForm.website.trim() || null,
+        category: editForm.category.trim() || null,
+      });
+      pageData = { ...pageData, ...updated };
+      showEditDialog = false;
+    } catch (e: any) {
+      editError = e?.body?.message || 'Failed to save page changes.';
+    } finally {
+      editSaving = false;
+    }
+  }
+
+  async function confirmDelete() {
+    deleting = true;
+    try {
+      await deletePage(pageId);
+      goto('/pages');
+    } catch {
+      deleting = false;
+      showDeleteConfirm = false;
+    }
+  }
 
   const tabs = [
     { id: 'posts', label: 'Posts' },
@@ -119,14 +197,27 @@
             />
           </div>
           <div class="page-actions">
-            <button
-              type="button"
-              class="btn {isFollowing ? 'btn-outline' : 'btn-primary'}"
-              onclick={toggleFollow}
-              disabled={followLoading}
-            >
-              {isFollowing ? 'Following' : 'Follow'}
-            </button>
+            {#if isOwner}
+              <button type="button" class="btn btn-outline" onclick={openEditDialog}>
+                Edit page
+              </button>
+              <button
+                type="button"
+                class="btn btn-outline btn-danger-outline"
+                onclick={() => (showDeleteConfirm = true)}
+              >
+                Delete
+              </button>
+            {:else}
+              <button
+                type="button"
+                class="btn {isFollowing ? 'btn-outline' : 'btn-primary'}"
+                onclick={toggleFollow}
+                disabled={followLoading}
+              >
+                {isFollowing ? 'Following' : 'Follow'}
+              </button>
+            {/if}
           </div>
         </div>
 
@@ -199,6 +290,10 @@
       </div>
     </div>
 
+    {#if $isStaffMember && !isOwner && pageData}
+      <AdminProfileActions account={pageData} />
+    {/if}
+
     <div class="page-feed-section">
       <Tabs {tabs} bind:active={activeTab}>
         {#if activeTab === 'posts'}
@@ -250,6 +345,70 @@
     </div>
   {/if}
 </div>
+
+{#if showEditDialog}
+  <div class="modal-overlay" role="dialog" aria-modal="true" aria-label="Edit page" onclick={(e) => { if (e.target === e.currentTarget) showEditDialog = false; }}>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Edit page</h3>
+        <button type="button" class="modal-close" onclick={() => (showEditDialog = false)} aria-label="Close">✕</button>
+      </div>
+      <form class="modal-form" onsubmit={(e) => { e.preventDefault(); saveEdit(); }}>
+        <label class="modal-field">
+          <span>Display name</span>
+          <input type="text" bind:value={editForm.display_name} maxlength="50" />
+        </label>
+        <label class="modal-field">
+          <span>Bio</span>
+          <textarea bind:value={editForm.bio} maxlength="500" rows="3" dir="auto"></textarea>
+        </label>
+        <label class="modal-field">
+          <span>Avatar URL</span>
+          <input type="url" bind:value={editForm.avatar_url} maxlength="2048" placeholder="https://…" />
+        </label>
+        <label class="modal-field">
+          <span>Header URL</span>
+          <input type="url" bind:value={editForm.header_url} maxlength="2048" placeholder="https://…" />
+        </label>
+        <label class="modal-field">
+          <span>Website</span>
+          <input type="url" bind:value={editForm.website} placeholder="https://…" />
+        </label>
+        <label class="modal-field">
+          <span>Category</span>
+          <input type="text" bind:value={editForm.category} maxlength="60" placeholder="Business / Tech / Arts / …" />
+        </label>
+        {#if editError}
+          <p class="modal-error">{editError}</p>
+        {/if}
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick={() => (showEditDialog = false)}>Cancel</button>
+          <button type="submit" class="btn btn-primary" disabled={editSaving}>
+            {editSaving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
+
+{#if showDeleteConfirm}
+  <div class="modal-overlay" role="dialog" aria-modal="true" aria-label="Delete page" onclick={(e) => { if (e.target === e.currentTarget) showDeleteConfirm = false; }}>
+    <div class="modal-card modal-card-narrow">
+      <h3 class="modal-title-danger">Delete this page?</h3>
+      <p class="modal-message">
+        This permanently deletes <strong>{pageData?.display_name || pageData?.handle}</strong>
+        and every post made to it. The action cannot be undone.
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick={() => (showDeleteConfirm = false)} disabled={deleting}>Cancel</button>
+        <button type="button" class="btn btn-danger" onclick={confirmDelete} disabled={deleting}>
+          {deleting ? 'Deleting…' : 'Delete page'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .page-detail {
@@ -496,6 +655,148 @@
 
   .btn-outline:hover {
     background: var(--color-surface);
+  }
+
+  .btn-danger-outline {
+    color: #dc2626;
+    border-color: rgba(220, 38, 38, 0.4);
+  }
+
+  .btn-danger-outline:hover {
+    background: rgba(220, 38, 38, 0.08);
+  }
+
+  .btn-danger {
+    background: #dc2626;
+    color: #fff;
+    border: 0;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: #b91c1c;
+  }
+
+  .btn-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-ghost {
+    background: transparent;
+    border: 0;
+    color: var(--color-text-secondary);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  /* --- Edit / Delete modal --- */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    z-index: 1000;
+  }
+
+  .modal-card {
+    background: var(--color-surface-raised);
+    border-radius: var(--radius-xl);
+    padding: var(--space-6);
+    max-width: 520px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .modal-card-narrow {
+    max-width: 420px;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-block-end: var(--space-3);
+  }
+
+  .modal-header h3,
+  .modal-title-danger {
+    margin: 0;
+    font-size: var(--text-lg);
+    font-weight: 700;
+  }
+
+  .modal-title-danger {
+    color: #dc2626;
+    margin-block-end: var(--space-2);
+  }
+
+  .modal-message {
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    margin-block-end: var(--space-4);
+  }
+
+  .modal-close {
+    background: transparent;
+    border: 0;
+    font-size: 1rem;
+    cursor: pointer;
+    color: var(--color-text-tertiary);
+  }
+
+  .modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .modal-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .modal-field span {
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: var(--color-text-secondary);
+  }
+
+  .modal-field input,
+  .modal-field textarea {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    font-family: inherit;
+  }
+
+  .modal-field input:focus,
+  .modal-field textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .modal-error {
+    color: #dc2626;
+    font-size: var(--text-sm);
+    margin: 0;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-block-start: var(--space-3);
   }
 
   @media (max-width: 480px) {
