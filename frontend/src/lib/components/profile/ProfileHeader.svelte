@@ -8,6 +8,7 @@
   import RoleBadge from '$lib/components/ui/RoleBadge.svelte';
   import AccountTypeIndicator from '$lib/components/ui/AccountTypeIndicator.svelte';
   import ImageLightbox from '$lib/components/ui/ImageLightbox.svelte';
+  import { filterBadges, type Badge } from '$lib/utils/badges.js';
 
   let {
     account,
@@ -92,6 +93,10 @@
   function cancelReport() {
     showReportModal = false;
   }
+
+  let badgeView = $derived(
+    filterBadges(((account as { badges?: Badge[] }).badges) ?? [], !!account.is_verified),
+  );
 
   // Lightbox for the banner + avatar. We only open it for real
   // uploaded images (skip the default placeholders) so a brand-new
@@ -192,16 +197,19 @@
 
     <div class="profile-identity">
       <h1 class="profile-display-name">
-        {account.display_name || account.handle}
-        {#if account.is_verified}
-          <VerifiedBadge size="md" />
-        {/if}
-        <AccountTypeIndicator account={account} size={16} />
-        {#if (account as any).badges}
-          {#each (account as any).badges as badge (badge.type)}
+        <span class="profile-display-name-text">{account.display_name || account.handle}</span>
+        <span class="profile-badges">
+          {#if badgeView.showVerifiedMark}
+            <VerifiedBadge size="md" />
+          {/if}
+          <AccountTypeIndicator account={account} size={16} />
+          {#each badgeView.nonTier as badge (badge.type)}
             <RoleBadge type={badge.type} label={badge.label} size="md" />
           {/each}
-        {/if}
+          {#if badgeView.highestTier}
+            <RoleBadge type={badgeView.highestTier.type} label={badgeView.highestTier.label} size="md" />
+          {/if}
+        </span>
       </h1>
       <span class="profile-handle">@{account.acct || account.handle}</span>
       {#if relationship?.followed_by && !isOwnProfile}
@@ -380,10 +388,23 @@
   }
 
   .profile-display-name {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
     font-size: var(--text-xl);
     font-weight: 700;
     color: var(--color-text);
     line-height: 1.3;
+  }
+
+  /* Group badges into a flex track so the gap is consistent and they
+     don't crowd the display name when wrapping. */
+  .profile-badges {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
   .profile-handle {

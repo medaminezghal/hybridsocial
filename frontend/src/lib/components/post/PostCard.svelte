@@ -13,6 +13,7 @@
   import ProfileHoverCard from '$lib/components/ui/ProfileHoverCard.svelte';
   import ImageLightbox from '$lib/components/ui/ImageLightbox.svelte';
   import { stripTrailingHashtags } from '$lib/utils/hashtag-footer.js';
+  import { filterBadges, type Badge } from '$lib/utils/badges.js';
 
   // Seeded PRNG from post ID for deterministic wave patterns
   function seededRng(seed: string) {
@@ -98,6 +99,9 @@
 
   let avatarUrl = $derived(post.account.avatar_url || '');
   let displayName = $derived(post.account.display_name || post.account.acct || post.account.handle);
+  let accountBadgeView = $derived(
+    filterBadges(((post.account as { badges?: Badge[] }).badges) ?? [], !!post.account.is_verified),
+  );
   let domain = $derived((post.account as any).domain as string | null);
   let isRemote = $derived(!!domain);
   // Prefer `acct` (already in webfinger form for remote accounts)
@@ -311,14 +315,15 @@
             <ProfileHoverCard handle={post.account.acct || post.account.handle}>
               <a href="/@{post.account.handle}" class="post-display-name">{displayName}</a>
             </ProfileHoverCard>
-            {#if post.account.is_verified}
+            {#if accountBadgeView.showVerifiedMark}
               <VerifiedBadge size="sm" />
             {/if}
             <AccountTypeIndicator account={post.account} />
-            {#if (post.account as any).badges}
-              {#each (post.account as any).badges as badge (badge.type)}
-                <RoleBadge type={badge.type} label={badge.label} size="sm" />
-              {/each}
+            {#each accountBadgeView.nonTier as badge (badge.type)}
+              <RoleBadge type={badge.type} label={badge.label} size="sm" />
+            {/each}
+            {#if accountBadgeView.highestTier}
+              <RoleBadge type={accountBadgeView.highestTier.type} label={accountBadgeView.highestTier.label} size="sm" />
             {/if}
           </div>
           <div class="post-meta-row">
