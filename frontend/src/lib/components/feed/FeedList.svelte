@@ -41,12 +41,28 @@
   let deletingIds = $state(new Set<string>());
   let hiddenIds = $state(new Set<string>());
 
-  let visiblePosts: FeedEntry[] = $derived(posts.filter(p => {
-    if (hiddenIds.has(p.id)) return false;
-    const post = isBoostEntry(p) ? p.post : p;
-    const result = matchFilters(post.content, post.spoiler_text, filterContext);
-    return !result || result.action !== 'hide';
-  }));
+  let visiblePosts: FeedEntry[] = $derived(
+    (() => {
+      // Dedupe by id at the render layer. Multiple call sites push
+      // into `posts` (pagination append, optimistic insert, SSE
+      // prepend, queue flush, …) and any of them slipping a duplicate
+      // through used to crash the keyed each block with
+      // `each_key_duplicate`. Belt-and-braces dedupe here is cheap
+      // and guarantees the render never sees a repeat.
+      const seen = new Set<string>();
+      const result: FeedEntry[] = [];
+      for (const p of posts) {
+        if (seen.has(p.id)) continue;
+        if (hiddenIds.has(p.id)) continue;
+        const post = isBoostEntry(p) ? p.post : p;
+        const matched = matchFilters(post.content, post.spoiler_text, filterContext);
+        if (matched && matched.action === 'hide') continue;
+        seen.add(p.id);
+        result.push(p);
+      }
+      return result;
+    })(),
+  );
 
   // Non-reactive tracker — avoids $effect infinite loop
   let _knownIds = new Set<string>();
