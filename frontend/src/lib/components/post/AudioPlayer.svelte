@@ -346,6 +346,8 @@
   }
 
   let resizeObs: ResizeObserver | null = null;
+  let visibilityObs: IntersectionObserver | null = null;
+  let containerEl: HTMLElement | undefined = $state();
 
   onMount(() => {
     loadWaveform();
@@ -354,10 +356,30 @@
       resizeObs = new ResizeObserver(() => drawWaveform());
       resizeObs.observe(canvasEl);
     }
+
+    // Auto-pause when the player scrolls out of view. A feed of
+    // audio posts where the user has hit play on one and scrolled
+    // away shouldn't keep talking — once paused, the user has to
+    // manually resume.
+    if (containerEl && typeof IntersectionObserver !== 'undefined') {
+      visibilityObs = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) continue;
+            if (!audioEl) continue;
+            if (audioEl.paused || audioEl.ended) continue;
+            audioEl.pause();
+          }
+        },
+        { threshold: 0.1 },
+      );
+      visibilityObs.observe(containerEl);
+    }
   });
 
   onDestroy(() => {
     resizeObs?.disconnect();
+    visibilityObs?.disconnect();
     stopAnim();
     // Tear the live graph down — leaving an AudioContext running
     // after the component unmounts leaks memory + keeps the tab's
@@ -377,6 +399,7 @@
 </script>
 
 <div
+  bind:this={containerEl}
   class="ap-pill"
   onclick={swallowClick}
   onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}

@@ -33,6 +33,21 @@ defmodule HybridsocialWeb.Api.V1.StatusController do
             message: "Your current tier does not allow audio posts."
           })
 
+        {:error, :target_media_not_found} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "target_media.not_found"})
+
+        {:error, :target_media_mismatch} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "target_media.not_on_parent"})
+
+        {:error, :target_media_requires_parent} ->
+          conn
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "target_media.requires_parent"})
+
         {:error, changeset} ->
           conn
           |> put_status(:unprocessable_entity)
@@ -371,8 +386,15 @@ defmodule HybridsocialWeb.Api.V1.StatusController do
   end
 
   # GET /api/v1/statuses/:id/context
-  def context(conn, %{"id" => id}) do
+  #
+  # Optional `media_id` query param narrows the descendants to those
+  # that pinned themselves to a specific image on the focused post.
+  # Ancestors are never filtered — the parent context is always the
+  # full lineage. Pass `media_id=none` to fetch only post-level
+  # replies (target_media_id IS NULL).
+  def context(conn, %{"id" => id} = params) do
     identity_id = current_identity_id(conn)
+    media_filter = parse_media_filter(params["media_id"])
 
     # Gate at the thread root: if the focused post is a direct one the
     # viewer isn't party to, don't leak its ancestors or replies.
@@ -381,18 +403,67 @@ defmodule HybridsocialWeb.Api.V1.StatusController do
         conn |> put_status(:not_found) |> json(%{error: "status.not_found"})
 
       _post ->
-        fetch_thread(conn, id, identity_id)
+        fetch_thread(conn, id, identity_id, media_filter)
     end
   end
 
-  defp fetch_thread(conn, id, identity_id) do
+  defp parse_media_filter(nil), do: :all
+  defp parse_media_filter(""), do: :all
+  defp parse_media_filter("none"), do: :none
+  defp parse_media_filter(id) when is_binary(id), do: {:media, id}
+  defp parse_media_filter(_), do: :all
+
+  # The thread is rooted at `focused_id`. Filtering applies to direct
+  # replies of that root only — nested grandchild replies inherit
+  # their parent's audience (we don't try to track per-image
+  # targeting deeper than depth 1, where it makes sense).
+  defp filter_by_target_media(descendants, _focused_id, :all), do: descendants
+
+  defp filter_by_target_media(descendants, focused_id, filter) do
+    # Walk descendants once, keeping a running set of allowed parent
+    # ids. A direct reply is kept iff it matches the filter; a nested
+    # reply is kept iff its parent_id is already in the allowed set
+    # (transitively pruning whole subtrees whose root direct reply was
+    # filtered out).
+    {kept, _allowed} =
+      Enum.reduce(descendants, {[], MapSet.new([focused_id])}, fn p, {acc, allowed} ->
+        cond do
+          # Direct reply on the focused post — apply the filter.
+          p.parent_id == focused_id ->
+            if direct_reply_matches?(p, filter) do
+              {[p | acc], MapSet.put(allowed, p.id)}
+            else
+              {acc, allowed}
+            end
+
+          # Nested: keep iff its parent passed the filter.
+          MapSet.member?(allowed, p.parent_id) ->
+            {[p | acc], MapSet.put(allowed, p.id)}
+
+          true ->
+            {acc, allowed}
+        end
+      end)
+
+    Enum.reverse(kept)
+  end
+
+  defp direct_reply_matches?(post, :none), do: is_nil(Map.get(post, :target_media_id))
+
+  defp direct_reply_matches?(post, {:media, media_id}),
+    do: Map.get(post, :target_media_id) == media_id
+
+  defp fetch_thread(conn, id, identity_id, media_filter) do
     case Posts.get_thread(id) do
       {:ok, %{ancestors: ancestors, descendants: descendants}} ->
         # Strip any post the viewer can't read — keeps direct replies
         # scoped to their audience even though the thread-root check
         # already gated entry.
         ancestors = Enum.filter(ancestors, &Posts.viewer_can_read?(&1, identity_id))
-        descendants = Enum.filter(descendants, &Posts.viewer_can_read?(&1, identity_id))
+        descendants =
+          descendants
+          |> Enum.filter(&Posts.viewer_can_read?(&1, identity_id))
+          |> filter_by_target_media(id, media_filter)
 
         serialized_ancestors =
           PostSerializer.serialize_many(ancestors, current_identity_id: identity_id)

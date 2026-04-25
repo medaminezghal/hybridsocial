@@ -37,8 +37,18 @@ export function deletePost(id: string): Promise<void> {
   return api.delete(`/api/v1/statuses/${id}`);
 }
 
-export function getPostContext(id: string): Promise<{ ancestors: Post[]; descendants: Post[] }> {
-  return api.get(`/api/v1/statuses/${id}/context`);
+export function getPostContext(
+  id: string,
+  opts?: { mediaId?: string | null },
+): Promise<{ ancestors: Post[]; descendants: Post[] }> {
+  // mediaId === null → only post-level replies (target_media_id IS NULL)
+  // mediaId === string → only replies pinned to that media
+  // omitted → full thread
+  const params: Record<string, string> = {};
+  if (opts && 'mediaId' in opts) {
+    params.media_id = opts.mediaId === null ? 'none' : (opts.mediaId as string);
+  }
+  return api.get(`/api/v1/statuses/${id}/context`, params);
 }
 
 export function boostPost(id: string): Promise<Post> {

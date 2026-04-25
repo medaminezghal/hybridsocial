@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { MediaAttachment, Identity } from '$lib/api/types.js';
   import { autoLoadRemoteMedia } from '$lib/utils/media-preferences.js';
+  import { onMount } from 'svelte';
   import AudioPlayer from './AudioPlayer.svelte';
 
   let {
@@ -12,6 +13,35 @@
     isRemote: boolean;
     author?: Identity | null;
   } = $props();
+
+  // Pause the inline <video> when it scrolls out of view so a feed
+  // full of autoplaying / playing posts doesn't keep audio bleeding
+  // through after the user has moved on. Resume is intentionally NOT
+  // automatic — once paused, the user has to hit play again.
+  // Skipped while the element is in fullscreen / picture-in-picture
+  // because intersection in those modes doesn't reflect viewer
+  // attention.
+  let videoEl: HTMLVideoElement | undefined = $state();
+  onMount(() => {
+    if (!videoEl) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) continue;
+          const el = entry.target as HTMLVideoElement;
+          if (el.paused || el.ended) continue;
+          if (document.fullscreenElement === el) continue;
+          if ((document as Document & { pictureInPictureElement?: Element }).pictureInPictureElement === el) continue;
+          el.pause();
+        }
+      },
+      { threshold: 0.1 },
+    );
+    obs.observe(videoEl);
+    return () => obs.disconnect();
+  });
 
   // Local media or "auto-load" preference ON → always render.
   // Remote + opt-out ON → render placeholder until tapped.
@@ -76,6 +106,7 @@
     />
   {:else if media.type === 'video'}
     <video
+      bind:this={videoEl}
       src={media.url}
       controls
       preload="metadata"

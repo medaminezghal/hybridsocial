@@ -133,7 +133,7 @@
   let lightboxImages = $derived(
     mediaAttachments
       .filter((m) => m.type === 'image' || m.type === 'gifv')
-      .map((m) => ({ url: m.url, alt: m.description }))
+      .map((m) => ({ id: m.id, url: m.url, alt: m.description }))
   );
   let lightboxOpen = $state(false);
   let lightboxIndex = $state(0);
@@ -426,7 +426,9 @@
       {#if post.parent_id}
         <div class="post-reply-indicator">
           <span class="material-symbols-outlined reply-icon" aria-hidden="true">reply</span>
-          {#if post.in_reply_to_account_id}
+          {#if post.target_media_id}
+            <span>Replying to a specific image</span>
+          {:else if post.in_reply_to_account_id}
             <span>Replying to <a href="/post/{post.parent_id}" class="reply-to-link">a post</a></span>
           {:else}
             <span>Replying to a post</span>
@@ -675,6 +677,18 @@
     images={lightboxImages}
     bind:index={lightboxIndex}
     onclose={() => (lightboxOpen = false)}
+    onreply={(mediaId, mediaIndex) => {
+      lightboxOpen = false;
+      window.dispatchEvent(
+        new CustomEvent('open-composer', {
+          detail: {
+            replyTo: post,
+            targetMediaId: mediaId,
+            targetMediaIndex: mediaIndex,
+          },
+        }),
+      );
+    }}
   />
 {/if}
 

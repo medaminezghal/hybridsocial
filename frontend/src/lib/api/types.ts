@@ -131,6 +131,13 @@ export interface Post {
   account: Identity;
   parent_id: string | null;
   root_id: string | null;
+  /** Optional id of the parent's media attachment that this reply targets. */
+  target_media_id?: string | null;
+  /**
+   * Per-image reply counts keyed by media id. Only populated for posts that
+   * own media attachments. `{}` for text-only or replies.
+   */
+  media_reply_counts?: Record<string, number>;
   in_reply_to_account_id: string | null;
   quote: Post | null;
   card: LinkCard | null;

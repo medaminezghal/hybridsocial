@@ -86,6 +86,15 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
     # Media attachments
     media_attachments = media_attachments_for(post.id)
 
+    # Per-image reply counts (only emit when the post owns media —
+    # avoids burning a query for every text-only post in a feed).
+    media_reply_counts =
+      if media_attachments != [] do
+        media_reply_counts_for(post.id)
+      else
+        %{}
+      end
+
     # URIs
     base_url = HybridsocialWeb.Endpoint.url()
 
@@ -114,6 +123,8 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
       account: account,
       parent_id: post.parent_id,
       root_id: post.root_id,
+      target_media_id: Map.get(post, :target_media_id),
+      media_reply_counts: media_reply_counts,
       in_reply_to_account_id: in_reply_to_account_id,
       quote: quote_post,
       card: card,
@@ -464,6 +475,23 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
     |> order_by([m], asc: m.inserted_at)
     |> Repo.all()
     |> Enum.group_by(& &1.post_id, &serialize_media_attachment/1)
+  end
+
+  # --- Per-image reply counts ---
+
+  # Returns a %{media_id => count} map for replies that pinned
+  # themselves to a specific media on this post. Excludes replies
+  # whose target_media has since been deleted (the FK is nilify_all
+  # on media delete, so those rows fall out naturally).
+  defp media_reply_counts_for(post_id) do
+    Hybridsocial.Social.Post
+    |> where([p], p.parent_id == ^post_id)
+    |> where([p], not is_nil(p.target_media_id))
+    |> where([p], is_nil(p.deleted_at))
+    |> group_by([p], p.target_media_id)
+    |> select([p], {p.target_media_id, count(p.id)})
+    |> Repo.all()
+    |> Map.new()
   end
 
   defp serialize_media_attachment(%MediaFile{} = media) do

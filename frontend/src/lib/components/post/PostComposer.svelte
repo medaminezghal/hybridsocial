@@ -25,6 +25,12 @@
   let loading = $state(false);
   let error = $state('');
   let replyTo = $state<Post | null>(null);
+  // When the reply was opened from the lightbox of a multi-image
+  // post, this holds the index (1-based) and id of the targeted
+  // media so the composer can both display "Replying to image N"
+  // and submit `target_media_id` to the API.
+  let targetMediaId = $state<string | null>(null);
+  let targetMediaIndex = $state<number | null>(null);
   let quotePost = $state<Post | null>(null);
   // Posting context — when set via the open-composer event from a
   // group or page detail screen, the resulting post is scoped to
@@ -112,6 +118,13 @@
         if (parentVis === 'public' || parentVis === 'followers' || parentVis === 'direct') {
           visibility = parentVis;
         }
+      }
+      if (detail?.targetMediaId) {
+        targetMediaId = detail.targetMediaId;
+        targetMediaIndex = detail.targetMediaIndex ?? null;
+      } else {
+        targetMediaId = null;
+        targetMediaIndex = null;
       }
       if (detail?.quotePost) {
         quotePost = detail.quotePost;
@@ -341,6 +354,8 @@
     spoilerText = '';
     showCW = false;
     replyTo = null;
+    targetMediaId = null;
+    targetMediaIndex = null;
     quotePost = null;
     groupId = null;
     pageId = null;
@@ -814,6 +829,9 @@
       }
       if (replyTo) {
         body.parent_id = replyTo.id;
+        if (targetMediaId) {
+          body.target_media_id = targetMediaId;
+        }
       }
       if (quotePost) {
         body.quote_id = quotePost.id;
@@ -1043,6 +1061,21 @@
     {#if replyTo}
       <div class="composer-reply-context">
         Replying to <strong>@{replyTo.account.acct || replyTo.account.handle}</strong>
+        {#if targetMediaId}
+          {@const targetMedia = replyTo.media_attachments?.find((m) => m.id === targetMediaId)}
+          {#if targetMedia}
+            <span class="composer-target-media">
+              {#if targetMedia.preview_url || targetMedia.url}
+                <img
+                  class="composer-target-thumb"
+                  src={targetMedia.preview_url || targetMedia.url}
+                  alt=""
+                />
+              {/if}
+              on image {targetMediaIndex ?? '?'}
+            </span>
+          {/if}
+        {/if}
       </div>
     {/if}
 
@@ -1685,12 +1718,30 @@
 
   /* ---- Reply context ---- */
   .composer-reply-context {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
     font-size: 0.875rem;
     color: var(--color-text-secondary);
     padding: 8px 12px;
     background: var(--color-surface);
     border-radius: 10px;
     margin-block-end: 16px;
+  }
+
+  .composer-target-media {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text);
+  }
+
+  .composer-target-thumb {
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 4px;
   }
 
   /* Scope context — shown when posting into a group or page so the

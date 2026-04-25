@@ -58,10 +58,39 @@ defmodule Hybridsocial.Social.Posts do
 
     with :ok <- validate_premium_emojis(attrs["content"], identity),
          :ok <- check_thread_not_locked(post_attrs),
-         :ok <- check_audio_allowed(attrs, limits) do
+         :ok <- check_audio_allowed(attrs, limits),
+         :ok <- check_target_media(post_attrs) do
       insert_post(changeset, attrs)
     end
   end
+
+  # If the reply pins itself to a specific media attachment, the
+  # attachment must belong to the parent post — otherwise a reply on
+  # post X could mis-target an image from post Y, which would show
+  # up nowhere sensible. Replies without a parent_id are rejected
+  # since per-image targeting only makes sense in a thread.
+  defp check_target_media(%{"target_media_id" => nil}), do: :ok
+  defp check_target_media(%{"target_media_id" => ""}), do: :ok
+
+  defp check_target_media(%{"target_media_id" => media_id, "parent_id" => parent_id})
+       when is_binary(media_id) and is_binary(parent_id) do
+    media =
+      Hybridsocial.Media.MediaFile
+      |> where([m], m.id == ^media_id and is_nil(m.deleted_at))
+      |> Repo.one()
+
+    cond do
+      is_nil(media) -> {:error, :target_media_not_found}
+      media.post_id != parent_id -> {:error, :target_media_mismatch}
+      true -> :ok
+    end
+  end
+
+  defp check_target_media(%{"target_media_id" => media_id}) when is_binary(media_id) do
+    {:error, :target_media_requires_parent}
+  end
+
+  defp check_target_media(_), do: :ok
 
   # Tier gate: if the user tries to post audio (either post_type=audio
   # or any attached media with an audio/* content type), their tier

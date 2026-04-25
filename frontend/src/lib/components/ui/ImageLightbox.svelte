@@ -4,16 +4,26 @@
   interface Slide {
     url: string;
     alt?: string | null;
+    /** Media attachment id — required for the per-image reply button. */
+    id?: string;
   }
 
   let {
     images,
     index = $bindable(0),
     onclose,
+    onreply,
   }: {
     images: Slide[];
     index?: number;
     onclose: () => void;
+    /**
+     * If supplied, the lightbox surfaces a "Reply to this image"
+     * button. Receives the targeted media's id and its 1-based index
+     * within the parent post's gallery so the composer can show a
+     * thumbnail + label and submit `target_media_id`.
+     */
+    onreply?: (mediaId: string, mediaIndex: number) => void;
   } = $props();
 
   let zoomed = $state(false);
@@ -117,6 +127,17 @@
     >
       <span class="material-symbols-outlined">download</span>
     </button>
+    {#if onreply && current?.id}
+      <button
+        type="button"
+        class="lightbox-btn"
+        onclick={() => onreply!(current.id!, index + 1)}
+        aria-label="Reply to this image"
+        title="Reply to this image"
+      >
+        <span class="material-symbols-outlined">comment</span>
+      </button>
+    {/if}
   </div>
 
   <button

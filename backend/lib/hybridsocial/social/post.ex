@@ -60,6 +60,10 @@ defmodule Hybridsocial.Social.Post do
     belongs_to :parent, __MODULE__
     belongs_to :root, __MODULE__
     belongs_to :quote, __MODULE__
+    # Per-image reply targeting: a reply can pin itself to one of the
+    # parent's media attachments so the post detail view can split
+    # the thread by image. Null = post-level reply, default behaviour.
+    belongs_to :target_media, Hybridsocial.Media.MediaFile
 
     has_many :reactions, Hybridsocial.Social.Reaction
     has_many :boosts, Hybridsocial.Social.Boost
@@ -96,6 +100,7 @@ defmodule Hybridsocial.Social.Post do
       :parent_id,
       :root_id,
       :quote_id,
+      :target_media_id,
       :identity_id,
       :scheduled_at,
       :ap_id,
@@ -115,6 +120,7 @@ defmodule Hybridsocial.Social.Post do
     |> foreign_key_constraint(:parent_id)
     |> foreign_key_constraint(:root_id)
     |> foreign_key_constraint(:quote_id)
+    |> foreign_key_constraint(:target_media_id)
     |> unique_constraint(:ap_id)
   end
 
