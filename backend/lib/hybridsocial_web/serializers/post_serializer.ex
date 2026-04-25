@@ -416,17 +416,28 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
   defp batch_reactions(_, _), do: %{}
 
   defp card_for(post) do
-    case LinkPreviews.preview_for_post(post) do
-      {:ok, preview} ->
-        %{
-          url: preview.url,
-          title: preview.title,
-          description: preview.description,
-          image: preview.image_url,
-          provider_name: preview.site_name
-        }
+    # Wrap in rescue: a misbehaving link preview (varchar overflow,
+    # network error mid-fetch, malformed HTML) is not worth 500ing
+    # the whole timeline over. Treat any failure as "no card" and
+    # let the post serialize without one.
+    try do
+      case LinkPreviews.preview_for_post(post) do
+        {:ok, preview} ->
+          %{
+            url: preview.url,
+            title: preview.title,
+            description: preview.description,
+            image: preview.image_url,
+            provider_name: preview.site_name
+          }
 
-      _ ->
+        _ ->
+          nil
+      end
+    rescue
+      e ->
+        require Logger
+        Logger.warning("card_for failed for post #{post.id}: #{Exception.message(e)}")
         nil
     end
   end
