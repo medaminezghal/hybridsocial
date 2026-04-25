@@ -70,23 +70,118 @@ export function stripTrailingHashtags(html: string | null | undefined): SplitRes
   return { html: container.innerHTML, trimmed };
 }
 
-// Walks every paragraph-ish element and removes the ones whose
-// content is exclusively hashtag links (plus whitespace). Returns
-// true if anything was removed.
+// Walks every paragraph-ish element. For each, first prunes any
+// internal <br>-delimited "lines" that are themselves hashtag-only
+// — Earmark/CommonMark collapses single newlines into <br> rather
+// than separate <p>s, so a tag on its own line lives inside the
+// surrounding paragraph alongside real sentence lines. Then drops
+// the whole paragraph if everything left in it is still hashtag-
+// only. Returns true if anything was removed.
 function removeHashtagOnlyParagraphs(root: HTMLElement): boolean {
   const trimmable = new Set(['P', 'DIV', 'BLOCKQUOTE', 'SECTION']);
   let removed = false;
-  // Snapshot — removing nodes during iteration would skip siblings.
   const candidates = Array.from(root.querySelectorAll('p, div, blockquote, section'));
 
   for (const el of candidates) {
     if (!el.parentNode || !trimmable.has(el.tagName)) continue;
+
+    if (stripHashtagOnlyLines(el)) removed = true;
+
     if (isHashtagOnly(el)) {
       el.parentNode.removeChild(el);
       removed = true;
     }
   }
   return removed;
+}
+
+// Splits the element's children at <br> boundaries and removes any
+// segment that's entirely hashtag links + whitespace. The trailing
+// <br> for a removed segment is also dropped so we don't leave a
+// blank line behind.
+function stripHashtagOnlyLines(el: Element): boolean {
+  const children = Array.from(el.childNodes);
+  // Collect segments: arrays of consecutive non-<br> nodes, plus the
+  // <br> that terminates each (if any).
+  const segments: { nodes: Node[]; terminator: Node | null }[] = [];
+  let current: Node[] = [];
+
+  for (const child of children) {
+    if (child.nodeType === Node.ELEMENT_NODE && (child as Element).tagName === 'BR') {
+      segments.push({ nodes: current, terminator: child });
+      current = [];
+    } else {
+      current.push(child);
+    }
+  }
+  if (current.length > 0) segments.push({ nodes: current, terminator: null });
+
+  // Need at least 2 segments for a "standalone line" to even exist —
+  // a paragraph with no <br> is handled by the whole-paragraph check.
+  if (segments.length < 2) return false;
+
+  let removed = false;
+  for (const seg of segments) {
+    if (isSegmentHashtagOnly(seg.nodes)) {
+      for (const n of seg.nodes) n.parentNode?.removeChild(n);
+      seg.terminator?.parentNode?.removeChild(seg.terminator);
+      removed = true;
+    }
+  }
+  return removed;
+}
+
+// Segment-level rule: treat the line as a tag dump if it has at
+// least one hashtag link and no residue at all (whitespace doesn't
+// count). This is intentionally stricter than the paragraph-level
+// rule because a single line of "#foo" inside a paragraph is much
+// more clearly a standalone tag than "#foo and other words".
+function isSegmentHashtagOnly(nodes: Node[]): boolean {
+  let sawHashtag = false;
+  for (const n of nodes) {
+    const counts = countSingleNode(n);
+    if (counts.blocked) return false;
+    sawHashtag = sawHashtag || counts.hashtagCount > 0;
+    if (counts.residue.trim().length > 0) return false;
+  }
+  return sawHashtag;
+}
+
+interface NodeCounts {
+  hashtagCount: number;
+  residue: string;
+  blocked: boolean;
+}
+
+function countSingleNode(node: Node): NodeCounts {
+  if (isHashtagLink(node)) return { hashtagCount: 1, residue: '', blocked: false };
+  if (isWhitespaceNode(node)) return { hashtagCount: 0, residue: '', blocked: false };
+  if (node.nodeType === Node.TEXT_NODE) {
+    return { hashtagCount: 0, residue: node.textContent || '', blocked: false };
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return { hashtagCount: 0, residue: '', blocked: false };
+  }
+  const el = node as HTMLElement;
+  const tag = el.tagName;
+  if (
+    tag === 'IMG' ||
+    tag === 'VIDEO' ||
+    tag === 'IFRAME' ||
+    tag === 'AUDIO' ||
+    tag === 'BLOCKQUOTE' ||
+    tag === 'PRE' ||
+    tag === 'CODE'
+  ) {
+    return { hashtagCount: 0, residue: '', blocked: true };
+  }
+  if (tag === 'A') {
+    // Non-hashtag <a> = real link → not a dump line.
+    return { hashtagCount: 0, residue: '', blocked: true };
+  }
+  // Transparent wrappers — recurse over their children.
+  const inner = countHashtagContent(el);
+  return { hashtagCount: inner.hashtagCount, residue: inner.residue, blocked: false };
 }
 
 // "Hashtag-only" — true when the element's content is dominated by
