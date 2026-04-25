@@ -60,7 +60,49 @@ export function stripTrailingHashtags(html: string | null | undefined): SplitRes
   // stripped every child. They'd render as hollow vertical space.
   removeEmptyTrailingContainers(container);
 
+  // Mid-body cleanup: any paragraph (or trimmable container) whose
+  // only meaningful children are hashtag links is also dropped. The
+  // rule users wanted: "if the hashtag is on a line by itself, show
+  // it only in the footer; if it's part of a sentence, keep both."
+  // Inline hashtags inside text-bearing paragraphs are untouched.
+  if (removeHashtagOnlyParagraphs(container)) trimmed = true;
+
   return { html: container.innerHTML, trimmed };
+}
+
+// Walks every paragraph-ish element and removes the ones whose
+// content is exclusively hashtag links (plus whitespace). Returns
+// true if anything was removed.
+function removeHashtagOnlyParagraphs(root: HTMLElement): boolean {
+  const trimmable = new Set(['P', 'DIV', 'BLOCKQUOTE', 'SECTION']);
+  let removed = false;
+  // Snapshot — removing nodes during iteration would skip siblings.
+  const candidates = Array.from(root.querySelectorAll('p, div, blockquote, section'));
+
+  for (const el of candidates) {
+    if (!el.parentNode || !trimmable.has(el.tagName)) continue;
+    if (isHashtagOnly(el)) {
+      el.parentNode.removeChild(el);
+      removed = true;
+    }
+  }
+  return removed;
+}
+
+// Element counts as "hashtag-only" when every child is either a
+// hashtag link or whitespace/<br>, and at least one hashtag link
+// exists. Pure-empty paragraphs are left to the trailing-cleanup.
+function isHashtagOnly(el: Element): boolean {
+  let sawHashtag = false;
+  for (const child of Array.from(el.childNodes)) {
+    if (isHashtagLink(child)) {
+      sawHashtag = true;
+      continue;
+    }
+    if (isWhitespaceNode(child)) continue;
+    return false;
+  }
+  return sawHashtag;
 }
 
 // Walk to the deepest rightmost node in the tree — that's the actual

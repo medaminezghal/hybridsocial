@@ -48,10 +48,15 @@ defmodule Hybridsocial.Content.MarkdownRenderer do
   def render(markdown, level) when is_binary(markdown) do
     level = normalize_level(level)
 
-    markdown
-    |> String.trim()
+    {with_placeholders, hashtags} =
+      markdown
+      |> String.trim()
+      |> stash_hashtags()
+
+    with_placeholders
     |> render_with_earmark(level)
     |> sanitize(level)
+    |> restore_hashtags(hashtags)
     |> post_process()
   end
 
@@ -60,10 +65,15 @@ defmodule Hybridsocial.Content.MarkdownRenderer do
   def render_trusted(""), do: ""
 
   def render_trusted(markdown) when is_binary(markdown) do
-    markdown
-    |> String.trim()
+    {with_placeholders, hashtags} =
+      markdown
+      |> String.trim()
+      |> stash_hashtags()
+
+    with_placeholders
     |> render_with_earmark(:full_embeds)
     |> sanitize(:full_embeds)
+    |> restore_hashtags(hashtags)
     |> post_process()
   end
 
@@ -129,6 +139,56 @@ defmodule Hybridsocial.Content.MarkdownRenderer do
         "#{prefix}<a href=\"/@#{acct}\" class=\"mention\">@#{user}</a>"
       end
     )
+  end
+
+  # Earmark sees `_` as italic, so a hashtag like `#foo_bar_baz` would
+  # come out of the renderer as `#foo<em>bar</em>baz` and the
+  # post-process regex would never match the full tag. To dodge that
+  # we lift hashtags out of the source *before* Earmark runs, swap in
+  # a marker that has no markdown-special characters, then splice the
+  # rendered anchors back in after sanitization.
+  @hashtag_re ~r/(^|[^\p{L}\p{M}\p{N}_>"\/])#(\p{L}[\p{L}\p{M}\p{N}_]{0,100})/u
+
+  defp stash_hashtags(text) do
+    # Walk the regex matches in order, replacing each `prefix#tag`
+    # with `prefix<<<HASHTAGn>>>`. The marker has no markdown-special
+    # characters so Earmark passes it through untouched, and the tag
+    # text — which may contain underscores — never reaches the
+    # emphasis parser.
+    matches = Regex.scan(@hashtag_re, text, return: :index)
+
+    {out, last_off, tags, _idx} =
+      Enum.reduce(matches, {"", 0, [], 0}, fn match, {acc, off, tags, idx} ->
+        [{full_off, full_len}, _, {tag_off, tag_len}] = match
+        prefix_len = full_len - 1 - tag_len
+        head = binary_part(text, off, full_off - off)
+        prefix = binary_part(text, full_off, prefix_len)
+        tag = binary_part(text, tag_off, tag_len)
+        marker = "<<<HASHTAG#{idx}>>>"
+        {acc <> head <> prefix <> marker, full_off + full_len, [{idx, tag} | tags], idx + 1}
+      end)
+
+    body = out <> binary_part(text, last_off, byte_size(text) - last_off)
+    {body, tags |> Enum.reverse() |> Enum.into(%{})}
+  end
+
+  defp restore_hashtags(html, hashtags) when map_size(hashtags) == 0, do: html
+
+  defp restore_hashtags(html, hashtags) do
+    Regex.replace(~r/&lt;&lt;&lt;HASHTAG(\d+)&gt;&gt;&gt;|<<<HASHTAG(\d+)>>>/, html, fn _full,
+                                                                                       idx_a,
+                                                                                       idx_b ->
+      idx = String.to_integer(if idx_a == "", do: idx_b, else: idx_a)
+
+      case Map.get(hashtags, idx) do
+        nil ->
+          ""
+
+        tag ->
+          slug = String.downcase(tag) |> URI.encode()
+          "<a href=\"/tags/#{slug}\" class=\"hashtag\">##{tag}</a>"
+      end
+    end)
   end
 
   defp link_hashtags(html) do
