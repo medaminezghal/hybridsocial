@@ -89,20 +89,90 @@ function removeHashtagOnlyParagraphs(root: HTMLElement): boolean {
   return removed;
 }
 
-// Element counts as "hashtag-only" when every child is either a
-// hashtag link or whitespace/<br>, and at least one hashtag link
-// exists. Pure-empty paragraphs are left to the trailing-cleanup.
+// "Hashtag-only" — true when the element's content is dominated by
+// hashtag links and the rest is whitespace, emphasis-wrapped tag
+// fragments (which is what happens when remote instances mis-render
+// `#foo_bar_baz` and chew the underscores into <em>), or trivial
+// punctuation that often sits between tags.
+//
+// We descend through transparent wrappers (em/strong/i/b/span) so
+// federated content where Earmark or a similar engine ate hashtag
+// underscores still gets recognised. The residue heuristic catches
+// the case where the markup is broken: as long as the visible
+// non-hashtag text is short and contains no sentence-ending
+// punctuation, we treat the paragraph as a tag dump.
 function isHashtagOnly(el: Element): boolean {
-  let sawHashtag = false;
-  for (const child of Array.from(el.childNodes)) {
+  const counts = countHashtagContent(el);
+  if (counts.hashtagCount === 0) return false;
+  // No non-hashtag, non-whitespace siblings at all → definitely a dump.
+  if (counts.residue.length === 0) return true;
+
+  // Federated mid-word emphasis bugs leave behind orphan word
+  // fragments next to the anchors ("salat", "الصلاة", "إسلامي"…).
+  // Strip the paragraph when:
+  //   - 2+ hashtags
+  //   - no sentence-ending punctuation in the residue
+  //   - the number of residue word-tokens doesn't exceed the hashtag
+  //     count (a real sentence with multiple hashtags carries more
+  //     connective words than tags).
+  const trimmed = counts.residue.trim();
+  if (counts.hashtagCount < 2) return false;
+  if (/[.!?،؛؟。！？]/.test(trimmed)) return false;
+  if (!trimmed) return true;
+  const tokens = trimmed.split(/\s+/u).filter(Boolean);
+  return tokens.length <= counts.hashtagCount;
+}
+
+interface HashtagCounts {
+  hashtagCount: number;
+  residue: string;
+}
+
+function countHashtagContent(node: Node): HashtagCounts {
+  let hashtagCount = 0;
+  let residue = '';
+
+  for (const child of Array.from(node.childNodes)) {
     if (isHashtagLink(child)) {
-      sawHashtag = true;
+      hashtagCount += 1;
       continue;
     }
     if (isWhitespaceNode(child)) continue;
-    return false;
+    if (child.nodeType === Node.TEXT_NODE) {
+      residue += child.textContent || '';
+      continue;
+    }
+    if (child.nodeType === Node.ELEMENT_NODE) {
+      const el = child as HTMLElement;
+      // Hard-block: anything with structural / media meaning is a
+      // signal of a real sentence. Bail out so the paragraph stays.
+      const tag = el.tagName;
+      if (
+        tag === 'IMG' ||
+        tag === 'VIDEO' ||
+        tag === 'IFRAME' ||
+        tag === 'AUDIO' ||
+        tag === 'BLOCKQUOTE' ||
+        tag === 'PRE' ||
+        tag === 'CODE'
+      ) {
+        return { hashtagCount: 0, residue: child.textContent ?? '' };
+      }
+      // Non-hashtag <a> = real link inside the paragraph → treat the
+      // paragraph as content.
+      if (tag === 'A') {
+        return { hashtagCount: 0, residue: child.textContent ?? '' };
+      }
+      // Transparent wrappers (em/strong/i/b/span/u) — recurse so we
+      // see the hashtags hiding inside them after the federated
+      // markdown bug.
+      const inner = countHashtagContent(child);
+      hashtagCount += inner.hashtagCount;
+      residue += inner.residue;
+    }
   }
-  return sawHashtag;
+
+  return { hashtagCount, residue };
 }
 
 // Walk to the deepest rightmost node in the tree — that's the actual
