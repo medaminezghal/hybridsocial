@@ -163,7 +163,27 @@
       </p>
 
       {#if notification.post}
-        <p class="notification-preview">{notification.post.content}</p>
+        {@const post = notification.post}
+        {@const text = (post.content ?? '').replace(/\s+/g, ' ').trim()}
+        {@const snippet = text.length > 30 ? text.slice(0, 30).trimEnd() + '…' : text}
+        {@const firstMedia = post.media_attachments?.[0]}
+        {@const thumbSrc = firstMedia?.preview_url || firstMedia?.url || null}
+        {#if snippet}
+          <p class="notification-preview">{snippet}</p>
+        {:else if firstMedia && thumbSrc && (firstMedia.type === 'image' || firstMedia.type === 'gifv')}
+          <img class="notification-thumb" src={thumbSrc} alt="" />
+        {:else if firstMedia && thumbSrc && firstMedia.type === 'video'}
+          <span class="notification-thumb notification-thumb-wrap">
+            <img src={thumbSrc} alt="" />
+            <span class="material-symbols-outlined notification-thumb-icon">play_arrow</span>
+          </span>
+        {:else if firstMedia}
+          <span class="notification-thumb notification-thumb-fallback">
+            <span class="material-symbols-outlined notification-thumb-icon">
+              {firstMedia.type === 'audio' ? 'graphic_eq' : 'attach_file'}
+            </span>
+          </span>
+        {/if}
       {/if}
 
       <time class="notification-time" datetime={notification.created_at}>
@@ -249,6 +269,52 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .notification-thumb {
+    display: inline-block;
+    margin-block-start: var(--space-1);
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    background: var(--color-surface-container, var(--color-surface));
+    overflow: hidden;
+  }
+
+  .notification-thumb-wrap {
+    position: relative;
+  }
+
+  .notification-thumb-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .notification-thumb-icon {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    color: white;
+    font-size: 18px;
+    text-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+    width: 18px;
+    height: 18px;
+    line-height: 1;
+  }
+
+  .notification-thumb-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .notification-thumb-fallback .notification-thumb-icon {
+    position: static;
+    color: var(--color-text-secondary);
+    text-shadow: none;
   }
 
   .notification-time {
