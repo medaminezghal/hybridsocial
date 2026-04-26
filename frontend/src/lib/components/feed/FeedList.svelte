@@ -191,11 +191,21 @@
     {/if}
   {/each}
 
-  {#if loading}
+  {#if loading && visiblePosts.length === 0}
     <div class="feed-loading">
       <SkeletonPost />
       <SkeletonPost />
       <SkeletonPost />
+    </div>
+  {:else if loading}
+    <!-- Pagination spinner: shown when loading more on top of an
+         already-rendered feed. Three full skeletons would be visually
+         loud at the bottom of the list, so we use a single inline
+         spinner with a "Loading more" label so the user knows the
+         scroll is doing something. -->
+    <div class="feed-loadmore" role="status" aria-live="polite">
+      <span class="feed-loadmore-spinner" aria-hidden="true"></span>
+      <span class="feed-loadmore-label">Loading more posts…</span>
     </div>
   {/if}
 
@@ -346,5 +356,28 @@
 
   .feed-sentinel {
     height: 1px;
+  }
+
+  .feed-loadmore {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 0 8px;
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+  }
+
+  .feed-loadmore-spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-primary);
+    animation: feed-loadmore-spin 0.8s linear infinite;
+  }
+
+  @keyframes feed-loadmore-spin {
+    to { transform: rotate(360deg); }
   }
 </style>

@@ -26,8 +26,12 @@
       posts = [];
       cursor = null;
       hasMore = true;
-      loading = true;
     }
+    // Flip on every call, not just the reset — without this, paginated
+    // loads were silent: no spinner, no skeleton, and the
+    // IntersectionObserver could re-fire while a fetch was in flight
+    // because nothing in the loading-gate had changed.
+    loading = true;
 
     try {
       const params: Record<string, string> = {};
