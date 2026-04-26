@@ -139,7 +139,7 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
   def build_like(identity, post) do
     post = maybe_preload(post, :identity)
     actor_url = actor_url(identity)
-    author_url = actor_url(post.identity)
+    author_url = actor_ap_url(post.identity)
 
     # A Like is a private signal to the post's author; it doesn't
     # need (and shouldn't have) broader addressing. For a direct
@@ -164,7 +164,7 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
   def build_emoji_react(identity, post, emoji) do
     post = maybe_preload(post, :identity)
     actor_url = actor_url(identity)
-    author_url = actor_url(post.identity)
+    author_url = actor_ap_url(post.identity)
 
     %{
       "@context" => @context,
@@ -188,6 +188,7 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
   # --- Announce (Boost) ---
 
   def build_announce(identity, post) do
+    post = maybe_preload(post, :identity)
     actor_url = actor_url(identity)
 
     %{
@@ -197,8 +198,16 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
       "actor" => actor_url,
       "published" => format_datetime(DateTime.utc_now()),
       "to" => [@public],
-      "cc" => [followers_url(identity), actor_url(post.identity)],
-      "object" => post_url(post.id)
+      # Same fix as Like — when the boosted post is remote, this needs
+      # the remote ap_actor_url so the post author's instance receives
+      # the Announce. The bare local actor_url ended up matching our
+      # base_url and getting filtered out as "local target".
+      "cc" => [followers_url(identity), actor_ap_url(post.identity)],
+      # Likewise the object URL needs to be the post's canonical AP
+      # id when it's a remote post — so the receiving peer recognises
+      # its own URL — falling back to our local representation only
+      # for native posts.
+      "object" => post_object_url(post)
     }
   end
 
@@ -639,6 +648,17 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
   defp actor_url(identity) do
     "#{base_url()}/actors/#{identity.id}"
   end
+
+  # AP-addressable URL for an identity. For remote identities use the
+  # cached `ap_actor_url` so when we address (e.g.) a Like to the post
+  # author, the Publisher routes it to the remote inbox. The bare
+  # `actor_url/1` always builds a LOCAL URL — fine for the activity's
+  # own `actor` field (we sign as the local user) but wrong for `to`/
+  # `cc` when the addressee is remote, which is why reactions on
+  # remote posts never federated: the only target was a local URL,
+  # so `determine_recipients/2` saw zero remote inboxes.
+  defp actor_ap_url(%{ap_actor_url: url}) when is_binary(url) and url != "", do: url
+  defp actor_ap_url(identity), do: actor_url(identity)
 
   defp post_url(post_id) do
     "#{base_url()}/posts/#{post_id}"
