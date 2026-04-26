@@ -95,6 +95,16 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
         %{}
       end
 
+    # Per-image reaction counts (Instagram-style heart per image).
+    # Same gating as the reply map — only run the aggregate when the
+    # post actually has media to keep feed pages cheap.
+    media_reaction_counts =
+      if media_attachments != [] do
+        media_reaction_counts_for(post.id)
+      else
+        %{}
+      end
+
     # URIs
     base_url = HybridsocialWeb.Endpoint.url()
 
@@ -125,6 +135,7 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
       root_id: post.root_id,
       target_media_id: Map.get(post, :target_media_id),
       media_reply_counts: media_reply_counts,
+      media_reaction_counts: media_reaction_counts,
       in_reply_to_account_id: in_reply_to_account_id,
       quote: quote_post,
       card: card,
@@ -490,6 +501,18 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
     |> where([p], is_nil(p.deleted_at))
     |> group_by([p], p.target_media_id)
     |> select([p], {p.target_media_id, count(p.id)})
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  # Returns a `%{media_id => count}` map of reactions scoped to a
+  # specific image on this post. Mirrors `media_reply_counts_for/1`.
+  defp media_reaction_counts_for(post_id) do
+    Hybridsocial.Social.Reaction
+    |> where([r], r.post_id == ^post_id)
+    |> where([r], not is_nil(r.target_media_id))
+    |> group_by([r], r.target_media_id)
+    |> select([r], {r.target_media_id, count(r.id)})
     |> Repo.all()
     |> Map.new()
   end

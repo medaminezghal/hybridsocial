@@ -303,28 +303,55 @@ defmodule HybridsocialWeb.Api.V1.StatusController do
             |> json(%{error: "reaction.emoji_not_found"})
 
           _emoji ->
-            do_react(conn, id, identity.id, type, custom_emoji_allowed)
+            do_react(conn, id, identity.id, type, custom_emoji_allowed, params)
         end
 
       true ->
         # Standard reaction or premium-catalog shortcode — both are
         # bare strings of `[a-z]+` and pass `Reaction.changeset`'s
         # custom_emoji_allowed format when the user is premium.
-        do_react(conn, id, identity.id, type, custom_emoji_allowed)
+        do_react(conn, id, identity.id, type, custom_emoji_allowed, params)
     end
   end
 
-  defp do_react(conn, post_id, identity_id, type, custom_emoji_allowed) do
-    case Posts.react(post_id, identity_id, type, custom_emoji_allowed: custom_emoji_allowed) do
+  defp do_react(conn, post_id, identity_id, type, custom_emoji_allowed, params) do
+    target_media_id = blank_to_nil(Map.get(params, "target_media_id"))
+
+    opts = [
+      custom_emoji_allowed: custom_emoji_allowed,
+      target_media_id: target_media_id
+    ]
+
+    case Posts.react(post_id, identity_id, type, opts) do
       {:ok, reaction} ->
         conn
         |> put_status(:ok)
-        |> json(%{id: reaction.id, type: reaction.type, post_id: reaction.post_id})
+        |> json(%{
+          id: reaction.id,
+          type: reaction.type,
+          post_id: reaction.post_id,
+          target_media_id: reaction.target_media_id
+        })
 
       {:error, :not_found} ->
         conn
         |> put_status(:not_found)
         |> json(%{error: "status.not_found"})
+
+      {:error, :target_media_not_found} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "reaction.target_media_not_found"})
+
+      {:error, :target_media_mismatch} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "reaction.target_media_mismatch"})
+
+      {:error, :target_media_invalid} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "reaction.target_media_invalid"})
 
       {:error, changeset} ->
         conn
@@ -333,11 +360,17 @@ defmodule HybridsocialWeb.Api.V1.StatusController do
     end
   end
 
-  # DELETE /api/v1/statuses/:id/react
-  def unreact(conn, %{"id" => id}) do
-    identity = conn.assigns.current_identity
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(v) when is_binary(v), do: v
+  defp blank_to_nil(_), do: nil
 
-    case Posts.unreact(id, identity.id) do
+  # DELETE /api/v1/statuses/:id/react
+  def unreact(conn, %{"id" => id} = params) do
+    identity = conn.assigns.current_identity
+    target_media_id = blank_to_nil(Map.get(params, "target_media_id"))
+
+    case Posts.unreact(id, identity.id, target_media_id) do
       {:ok, _} ->
         conn
         |> put_status(:ok)

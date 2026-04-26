@@ -134,13 +134,65 @@
   // Image lightbox: populated by an image click in the media grid.
   // Only images (not video/audio) open the lightbox — video has its
   // own inline <video controls>.
+  //
+  // Per-image reaction counts ride alongside each slide so the lightbox
+  // can render an Instagram-style heart with the current count. We
+  // also need a local mirror of the "did the viewer react?" flag so
+  // the heart can fill / unfill optimistically without re-fetching the
+  // post. The optimistic state is keyed by media id.
+  let mediaReactionOverrides: Record<string, { reacted: boolean; delta: number }> = $state({});
+
   let lightboxImages = $derived(
     mediaAttachments
       .filter((m) => m.type === 'image' || m.type === 'gifv')
-      .map((m) => ({ id: m.id, url: m.url, alt: m.description }))
+      .map((m) => {
+        const baseCount = (post.media_reaction_counts as Record<string, number> | undefined)?.[m.id] ?? 0;
+        const override = mediaReactionOverrides[m.id];
+        return {
+          id: m.id,
+          url: m.url,
+          alt: m.description,
+          reactionCount: Math.max(0, baseCount + (override?.delta ?? 0)),
+          reacted: override?.reacted ?? false,
+        };
+      })
   );
   let lightboxOpen = $state(false);
   let lightboxIndex = $state(0);
+
+  async function handleMediaReact(mediaId: string, next: boolean) {
+    const prev = mediaReactionOverrides[mediaId];
+    const wasReacted = prev?.reacted ?? false;
+    if (wasReacted === next) return;
+
+    // Optimistic toggle. Server response either confirms or we revert.
+    mediaReactionOverrides = {
+      ...mediaReactionOverrides,
+      [mediaId]: {
+        reacted: next,
+        delta: (prev?.delta ?? 0) + (next ? 1 : -1),
+      },
+    };
+
+    try {
+      if (next) {
+        await api.post(`/api/v1/statuses/${post.id}/react`, {
+          type: 'like',
+          target_media_id: mediaId,
+        });
+      } else {
+        await api.delete(`/api/v1/statuses/${post.id}/react`, {
+          target_media_id: mediaId,
+        });
+      }
+    } catch {
+      // Revert on failure.
+      mediaReactionOverrides = {
+        ...mediaReactionOverrides,
+        [mediaId]: prev ?? { reacted: false, delta: 0 },
+      };
+    }
+  }
 
   function openLightbox(media: typeof mediaAttachments[number]) {
     const idx = lightboxImages.findIndex((s) => s.url === media.url);
@@ -698,6 +750,7 @@
         }),
       );
     }}
+    onreact={handleMediaReact}
   />
 {/if}
 

@@ -12,18 +12,25 @@ defmodule Hybridsocial.Social.Reaction do
 
     belongs_to :post, Hybridsocial.Social.Post
     belongs_to :identity, Hybridsocial.Accounts.Identity
+    # Optional: scope this reaction to a specific image inside the
+    # parent post (Instagram-style per-image reaction). NULL means
+    # the reaction is on the post itself.
+    belongs_to :target_media, Hybridsocial.Media.MediaFile
 
     timestamps(type: :utc_datetime_usec)
   end
 
   def changeset(reaction, attrs, opts \\ []) do
     reaction
-    |> cast(attrs, [:post_id, :identity_id, :type])
+    |> cast(attrs, [:post_id, :identity_id, :type, :target_media_id])
     |> validate_required([:post_id, :identity_id, :type])
     |> validate_type(opts)
-    |> unique_constraint([:post_id, :identity_id])
+    |> unique_constraint([:post_id, :identity_id, :target_media_id],
+      name: :reactions_post_user_media_unique
+    )
     |> foreign_key_constraint(:post_id)
     |> foreign_key_constraint(:identity_id)
+    |> foreign_key_constraint(:target_media_id)
   end
 
   defp validate_type(changeset, opts) do

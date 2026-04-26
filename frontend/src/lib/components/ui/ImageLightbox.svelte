@@ -6,6 +6,10 @@
     alt?: string | null;
     /** Media attachment id — required for the per-image reply button. */
     id?: string;
+    /** Server-reported reaction count for this image (Instagram-style). */
+    reactionCount?: number;
+    /** Whether the viewer has already reacted to this image. */
+    reacted?: boolean;
   }
 
   let {
@@ -13,6 +17,7 @@
     index = $bindable(0),
     onclose,
     onreply,
+    onreact,
   }: {
     images: Slide[];
     index?: number;
@@ -24,9 +29,22 @@
      * thumbnail + label and submit `target_media_id`.
      */
     onreply?: (mediaId: string, mediaIndex: number) => void;
+    /**
+     * Instagram-style heart on the lightbox image. Receives the
+     * targeted media's id and the next desired state. Caller is
+     * expected to POST/DELETE /api/v1/statuses/:id/react with
+     * target_media_id and update the slide's reactionCount /
+     * reacted flag.
+     */
+    onreact?: (mediaId: string, next: boolean) => void;
   } = $props();
 
   let zoomed = $state(false);
+  // Instagram-style double-tap-to-like: when the user taps the image
+  // twice in quick succession AND the host wired up onreact, fire the
+  // reaction and play a heart-burst animation tied to the image.
+  let lastTapAt = $state(0);
+  let burstAt = $state(0);
 
   let current = $derived(images[index] ?? images[0]);
   let hasPrev = $derived(index > 0);
@@ -52,6 +70,25 @@
 
   function toggleZoom() {
     zoomed = !zoomed;
+  }
+
+  function handleImageTap() {
+    const now = performance.now();
+    // 320ms is the standard double-tap window; longer than that and we
+    // treat it as two separate single taps (which fall through to the
+    // default zoom-toggle behaviour below).
+    const isDoubleTap = now - lastTapAt < 320;
+    lastTapAt = now;
+
+    if (isDoubleTap && onreact && current?.id && !current.reacted) {
+      onreact(current.id, true);
+      burstAt = now;
+      return;
+    }
+
+    if (!isDoubleTap) {
+      toggleZoom();
+    }
   }
 
   async function download() {
@@ -127,6 +164,23 @@
     >
       <span class="material-symbols-outlined">download</span>
     </button>
+    {#if onreact && current?.id}
+      <button
+        type="button"
+        class="lightbox-btn lightbox-btn-react"
+        class:lightbox-btn-reacted={current.reacted}
+        onclick={() => onreact!(current.id!, !current.reacted)}
+        aria-label={current.reacted ? 'Remove reaction' : 'React to this image'}
+        title={current.reacted ? 'Remove reaction' : 'React to this image'}
+      >
+        <span class="material-symbols-outlined" class:material-symbols-filled={current.reacted}>
+          favorite
+        </span>
+        {#if current.reactionCount && current.reactionCount > 0}
+          <span class="lightbox-react-count">{current.reactionCount}</span>
+        {/if}
+      </button>
+    {/if}
     {#if onreply && current?.id}
       <button
         type="button"
@@ -172,7 +226,15 @@
       class="lightbox-img"
       class:lightbox-img-zoomed={zoomed}
       draggable="false"
+      onclick={(e) => { e.stopPropagation(); handleImageTap(); }}
     />
+    {#if burstAt > 0}
+      {#key burstAt}
+        <span class="lightbox-burst" aria-hidden="true">
+          <span class="material-symbols-outlined material-symbols-filled">favorite</span>
+        </span>
+      {/key}
+    {/if}
   </div>
 
   {#if images.length > 1}
@@ -314,5 +376,54 @@
     font-size: 0.8rem;
     font-variant-numeric: tabular-nums;
     z-index: 2;
+  }
+
+  /* Heart button: round count chip when count > 0, otherwise just the
+     icon. The reacted state colours the icon red and draws it filled. */
+  .lightbox-btn-react {
+    width: auto;
+    min-width: 40px;
+    padding-inline: 12px;
+    gap: 6px;
+  }
+
+  .lightbox-btn-reacted {
+    color: var(--color-danger, #f0506e);
+  }
+
+  .lightbox-btn-reacted :global(.material-symbols-outlined) {
+    font-variation-settings: 'FILL' 1;
+  }
+
+  .lightbox-react-count {
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  /* Double-tap heart burst — pops above the image, fades out fast. */
+  .lightbox-burst {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 3;
+    animation: lightbox-burst 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .lightbox-burst :global(.material-symbols-outlined) {
+    font-size: 140px;
+    color: rgba(255, 255, 255, 0.95);
+    text-shadow: 0 6px 30px rgba(0, 0, 0, 0.5);
+    font-variation-settings: 'FILL' 1;
+  }
+
+  @keyframes lightbox-burst {
+    0%   { opacity: 0; transform: scale(0.4); }
+    25%  { opacity: 1; transform: scale(1.15); }
+    60%  { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.95); }
   }
 </style>

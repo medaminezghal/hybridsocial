@@ -138,6 +138,12 @@ export interface Post {
    * own media attachments. `{}` for text-only or replies.
    */
   media_reply_counts?: Record<string, number>;
+  /**
+   * Per-image reaction counts keyed by media id. Mirrors
+   * `media_reply_counts`. Drives the Instagram-style heart in the
+   * lightbox.
+   */
+  media_reaction_counts?: Record<string, number>;
   in_reply_to_account_id: string | null;
   quote: Post | null;
   card: LinkCard | null;

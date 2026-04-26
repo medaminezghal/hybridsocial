@@ -1049,15 +1049,33 @@ defmodule Hybridsocial.Social.Posts do
   # --- Reactions ---
 
   def react(post_id, identity_id, type, opts \\ []) do
-    with {:ok, post} <- get_existing_post(post_id) do
-      case get_existing_reaction(post_id, identity_id) do
+    target_media_id = Keyword.get(opts, :target_media_id)
+
+    with {:ok, post} <- get_existing_post(post_id),
+         :ok <- validate_target_media(post_id, target_media_id) do
+      case get_existing_reaction(post_id, identity_id, target_media_id) do
         nil ->
           %Reaction{}
-          |> Reaction.changeset(%{post_id: post_id, identity_id: identity_id, type: type}, opts)
+          |> Reaction.changeset(
+            %{
+              post_id: post_id,
+              identity_id: identity_id,
+              type: type,
+              target_media_id: target_media_id
+            },
+            opts
+          )
           |> Repo.insert()
           |> case do
             {:ok, reaction} ->
-              update_reaction_count(post_id, 1)
+              # Only the post-level reaction bumps the counter on the
+              # post — per-image reactions are tallied in the
+              # PostSerializer's `media_reaction_counts` map. Same
+              # split as `media_reply_counts`.
+              if is_nil(target_media_id) do
+                update_reaction_count(post_id, 1)
+              end
+
               # Bell the post's author. Self-reactions are filtered
               # out by create_notification, so we don't guard here.
               Hybridsocial.Notifications.notify_reaction(identity_id, post)
@@ -1087,6 +1105,25 @@ defmodule Hybridsocial.Social.Posts do
       end
     end
   end
+
+  # Per-image reaction target must belong to the same post the
+  # reaction is attached to — same rule we already enforce on
+  # per-image replies via `check_target_media`.
+  defp validate_target_media(_post_id, nil), do: :ok
+
+  defp validate_target_media(post_id, media_id) when is_binary(media_id) do
+    case Repo.one(
+           from m in Hybridsocial.Media.MediaFile,
+             where: m.id == ^media_id and is_nil(m.deleted_at),
+             select: m.post_id
+         ) do
+      nil -> {:error, :target_media_not_found}
+      ^post_id -> :ok
+      _ -> {:error, :target_media_mismatch}
+    end
+  end
+
+  defp validate_target_media(_post_id, _other), do: {:error, :target_media_invalid}
 
   # Push a Like (for type=="like") or EmojiReact activity to the
   # remote author so reactions on federated posts actually reach the
@@ -1137,15 +1174,22 @@ defmodule Hybridsocial.Social.Posts do
   defp reaction_emoji_for("lol"), do: "😂"
   defp reaction_emoji_for(_), do: nil
 
-  def unreact(post_id, identity_id) do
-    case get_existing_reaction(post_id, identity_id) do
+  def unreact(post_id, identity_id, target_media_id \\ nil) do
+    case get_existing_reaction(post_id, identity_id, target_media_id) do
       nil ->
         {:error, :not_found}
 
       reaction ->
         case Repo.delete(reaction) do
           {:ok, deleted} ->
-            update_reaction_count(post_id, -1)
+            # Mirror the bump rule from `react/4` — only post-level
+            # reactions move the post's `reaction_count`. Per-image
+            # reactions live in the serializer's media_reaction_counts
+            # map and don't need a counter column.
+            if is_nil(deleted.target_media_id) do
+              update_reaction_count(post_id, -1)
+            end
+
             # Tell the remote peer to drop the like/emoji-react if
             # the post lives there. Best-effort; the reaction is
             # already gone locally.
@@ -1637,9 +1681,22 @@ defmodule Hybridsocial.Social.Posts do
     end
   end
 
-  defp get_existing_reaction(post_id, identity_id) do
+  defp get_existing_reaction(post_id, identity_id, nil) do
     Reaction
-    |> where([r], r.post_id == ^post_id and r.identity_id == ^identity_id)
+    |> where(
+      [r],
+      r.post_id == ^post_id and r.identity_id == ^identity_id and is_nil(r.target_media_id)
+    )
+    |> Repo.one()
+  end
+
+  defp get_existing_reaction(post_id, identity_id, target_media_id) do
+    Reaction
+    |> where(
+      [r],
+      r.post_id == ^post_id and r.identity_id == ^identity_id and
+        r.target_media_id == ^target_media_id
+    )
     |> Repo.one()
   end
 
