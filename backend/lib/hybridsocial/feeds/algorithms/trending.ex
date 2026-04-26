@@ -77,6 +77,10 @@ defmodule Hybridsocial.Feeds.Algorithms.Trending do
     window_hours = trending_window()
     cutoff = DateTime.add(DateTime.utc_now(), -window_hours * 3600, :second)
     now = DateTime.utc_now()
+    # Resolve the cursor's engagement+id boundary once. Trending
+    # orders by engagement, so a `p.id < max_id` UUID compare returns
+    # an arbitrary slice and the feed freezes at 20.
+    cursor = resolve_cursor(opts)
 
     # Fetch more candidates than needed to allow diversity filtering
     candidate_limit = limit * @candidate_multiplier
@@ -88,13 +92,14 @@ defmodule Hybridsocial.Feeds.Algorithms.Trending do
       |> where([p], is_nil(p.parent_id))
       |> where([p], p.inserted_at >= ^cutoff)
       |> where([p], p.reaction_count + p.boost_count + p.reply_count >= 1)
-      |> apply_cursor_filters(opts)
+      |> apply_post_cursor(cursor)
       |> Visibility.apply_block_filter(identity_id)
       |> Visibility.apply_mute_filter(identity_id)
       |> Visibility.apply_shadow_ban_filter(identity_id)
       |> Visibility.apply_silence_filter()
       |> order_by([p],
-        desc: fragment("? + ? * 2 + ?", p.reaction_count, p.boost_count, p.reply_count)
+        desc: fragment("? + ? * 2 + ?", p.reaction_count, p.boost_count, p.reply_count),
+        desc: p.id
       )
       |> limit(^candidate_limit)
       |> preload([:identity, :quote])
@@ -161,19 +166,68 @@ defmodule Hybridsocial.Feeds.Algorithms.Trending do
     |> max(1)
   end
 
-  defp apply_cursor_filters(query, opts) do
-    query
-    |> maybe_max_id(Keyword.get(opts, :max_id))
-    |> maybe_min_id(Keyword.get(opts, :min_id))
-    |> maybe_since_id(Keyword.get(opts, :since_id))
+  # Trending ORDER BY is the engagement expression, so the cursor must
+  # be a row-tuple compare on the same expression — not the post id.
+  # Look up the boundary post's counts first; when the cursor doesn't
+  # resolve (stale client, boost id leaking through, etc.) fall through
+  # to no-cursor rather than emitting an empty page.
+  defp resolve_cursor(opts) do
+    cond do
+      max_id = Keyword.get(opts, :max_id) ->
+        case lookup_post_cursor(max_id), do: (nil -> nil; {eng, id} -> {:older, eng, id})
+
+      min_id = Keyword.get(opts, :min_id) ->
+        case lookup_post_cursor(min_id), do: (nil -> nil; {eng, id} -> {:newer, eng, id})
+
+      since_id = Keyword.get(opts, :since_id) ->
+        case lookup_post_cursor(since_id), do: (nil -> nil; {eng, id} -> {:newer, eng, id})
+
+      true ->
+        nil
+    end
   end
 
-  defp maybe_max_id(query, nil), do: query
-  defp maybe_max_id(query, max_id), do: where(query, [p], p.id < ^max_id)
+  defp lookup_post_cursor(id) when is_binary(id) do
+    Repo.one(
+      from p in Post,
+        where: p.id == ^id,
+        select: {p.reaction_count + p.boost_count * 2 + p.reply_count, p.id}
+    )
+  end
 
-  defp maybe_min_id(query, nil), do: query
-  defp maybe_min_id(query, min_id), do: where(query, [p], p.id > ^min_id)
+  defp lookup_post_cursor(_), do: nil
 
-  defp maybe_since_id(query, nil), do: query
-  defp maybe_since_id(query, since_id), do: where(query, [p], p.id > ^since_id)
+  defp apply_post_cursor(query, nil), do: query
+
+  defp apply_post_cursor(query, {:older, eng, id}) do
+    where(
+      query,
+      [p],
+      fragment(
+        "(? + ? * 2 + ?, ?) < (?, ?)",
+        p.reaction_count,
+        p.boost_count,
+        p.reply_count,
+        p.id,
+        ^eng,
+        type(^id, Ecto.UUID)
+      )
+    )
+  end
+
+  defp apply_post_cursor(query, {:newer, eng, id}) do
+    where(
+      query,
+      [p],
+      fragment(
+        "(? + ? * 2 + ?, ?) > (?, ?)",
+        p.reaction_count,
+        p.boost_count,
+        p.reply_count,
+        p.id,
+        ^eng,
+        type(^id, Ecto.UUID)
+      )
+    )
+  end
 end

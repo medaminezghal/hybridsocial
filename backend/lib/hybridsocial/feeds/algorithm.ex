@@ -67,6 +67,11 @@ defmodule Hybridsocial.Feeds.Algorithm do
   def algorithmic_timeline(identity_id, opts \\ []) do
     limit = parse_limit(opts)
     cutoff = DateTime.add(DateTime.utc_now(), -@candidate_window_hours * 3600, :second)
+    # Resolve the cursor once — same pattern as chronological. The
+    # candidate fetch is scored in Elixir, so the DB-level cursor is
+    # just a coarse filter; comparing UUIDs against `inserted_at`
+    # ordering returns an arbitrary slice and freezes the feed at 20.
+    cursor = resolve_cursor(opts)
 
     # Get followed account IDs
     followed_ids =
@@ -89,8 +94,7 @@ defmodule Hybridsocial.Feeds.Algorithm do
       |> where([p], is_nil(p.deleted_at))
       |> where([p], is_nil(p.parent_id))
       |> where([p], p.inserted_at >= ^cutoff)
-      |> maybe_max_id(Keyword.get(opts, :max_id))
-      |> maybe_min_id(Keyword.get(opts, :min_id))
+      |> apply_post_cursor(cursor)
       |> Visibility.apply_shadow_ban_filter(identity_id)
       |> preload([:identity, :quote])
       |> Repo.all()
@@ -102,8 +106,7 @@ defmodule Hybridsocial.Feeds.Algorithm do
       |> where([p], p.inserted_at >= ^cutoff)
       |> where([p], p.identity_id not in ^followed_ids)
       |> where([p], p.reaction_count >= 1 or p.boost_count >= 1)
-      |> maybe_max_id(Keyword.get(opts, :max_id))
-      |> maybe_min_id(Keyword.get(opts, :min_id))
+      |> apply_post_cursor(cursor)
       |> Visibility.apply_shadow_ban_filter(identity_id)
       |> Visibility.apply_silence_filter()
       |> preload([:identity, :quote])
@@ -205,11 +208,40 @@ defmodule Hybridsocial.Feeds.Algorithm do
     |> max(1)
   end
 
-  defp maybe_max_id(query, nil), do: query
-  defp maybe_max_id(query, max_id), do: where(query, [p], p.id < ^max_id)
+  # Look up the cursor's row first, then row-tuple compare against
+  # (inserted_at, id). UUID-vs-timestamp lex compares freeze the feed
+  # after the first page (see feedback memory).
+  defp resolve_cursor(opts) do
+    cond do
+      max_id = Keyword.get(opts, :max_id) ->
+        case lookup_post_cursor(max_id), do: (nil -> nil; {ia, id} -> {:older, ia, id})
 
-  defp maybe_min_id(query, nil), do: query
-  defp maybe_min_id(query, min_id), do: where(query, [p], p.id > ^min_id)
+      min_id = Keyword.get(opts, :min_id) ->
+        case lookup_post_cursor(min_id), do: (nil -> nil; {ia, id} -> {:newer, ia, id})
+
+      true ->
+        nil
+    end
+  end
+
+  defp lookup_post_cursor(id) when is_binary(id) do
+    case Repo.one(from p in Post, where: p.id == ^id, select: {p.inserted_at, p.id}) do
+      nil -> nil
+      {ia, pid} -> {ia, pid}
+    end
+  end
+
+  defp lookup_post_cursor(_), do: nil
+
+  defp apply_post_cursor(query, nil), do: query
+
+  defp apply_post_cursor(query, {:older, ia, id}) do
+    where(query, [p], fragment("(?, ?) < (?, ?)", p.inserted_at, p.id, ^ia, type(^id, Ecto.UUID)))
+  end
+
+  defp apply_post_cursor(query, {:newer, ia, id}) do
+    where(query, [p], fragment("(?, ?) > (?, ?)", p.inserted_at, p.id, ^ia, type(^id, Ecto.UUID)))
+  end
 
   defp tags_to_map(tags) when is_list(tags) do
     tags
