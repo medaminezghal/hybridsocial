@@ -17,21 +17,9 @@
 
   let postId = $derived(page.params.id!);
 
-  // Active media filter for the descendants list. `'all'` shows
-  // every reply. `'none'` shows only post-level replies (no
-  // target_media_id). A media id shows only replies pinned to that
-  // image. The chip row hides itself when the post owns no media.
-  let mediaFilter = $state<'all' | 'none' | string>('all');
-
-  async function loadThread(filter: 'all' | 'none' | string = 'all') {
+  async function loadThread() {
     try {
-      const [p, context] = await Promise.all([
-        getPost(postId),
-        getPostContext(
-          postId,
-          filter === 'all' ? undefined : { mediaId: filter === 'none' ? null : filter },
-        ),
-      ]);
+      const [p, context] = await Promise.all([getPost(postId), getPostContext(postId)]);
       post = p;
       ancestors = context.ancestors || [];
       descendants = context.descendants || [];
@@ -40,13 +28,6 @@
     } finally {
       loading = false;
     }
-  }
-
-  async function setMediaFilter(next: 'all' | 'none' | string) {
-    if (mediaFilter === next) return;
-    mediaFilter = next;
-    loading = true;
-    await loadThread(next);
   }
 
   onMount(() => {
@@ -152,51 +133,6 @@
         <PostCard {post} detail />
       </div>
 
-      {#if (post.media_attachments?.length ?? 0) > 1}
-        <div class="media-filter-row" role="tablist" aria-label="Filter replies by image">
-          <button
-            type="button"
-            role="tab"
-            class="media-filter-chip"
-            class:media-filter-chip-active={mediaFilter === 'all'}
-            aria-selected={mediaFilter === 'all'}
-            onclick={() => setMediaFilter('all')}
-          >
-            All ({post.reply_count ?? 0})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            class="media-filter-chip"
-            class:media-filter-chip-active={mediaFilter === 'none'}
-            aria-selected={mediaFilter === 'none'}
-            onclick={() => setMediaFilter('none')}
-          >
-            On post
-          </button>
-          {#each post.media_attachments as m, i (m.id)}
-            {@const count = post.media_reply_counts?.[m.id] ?? 0}
-            <button
-              type="button"
-              role="tab"
-              class="media-filter-chip media-filter-chip-image"
-              class:media-filter-chip-active={mediaFilter === m.id}
-              aria-selected={mediaFilter === m.id}
-              onclick={() => setMediaFilter(m.id)}
-              title="Replies on image {i + 1}"
-            >
-              {#if m.preview_url || m.url}
-                <img src={m.preview_url || m.url} alt="" class="media-filter-thumb" />
-              {/if}
-              <span class="media-filter-label">#{i + 1}</span>
-              {#if count > 0}
-                <span class="media-filter-count">{count}</span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-      {/if}
-
       <div class="thread-replies">
         <ThreadedReplies {descendants} rootPostId={post.id} />
       </div>
@@ -297,65 +233,5 @@
   .thread-replies {
     display: flex;
     flex-direction: column;
-  }
-
-  /* --- Media filter chips --- */
-  .media-filter-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    padding: var(--space-3) 0;
-    border-block-start: 1px solid var(--color-border);
-    border-block-end: 1px solid var(--color-border);
-    margin-block-start: var(--space-2);
-  }
-
-  .media-filter-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    background: var(--color-surface);
-    color: var(--color-text);
-    font-size: var(--text-sm);
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .media-filter-chip:hover {
-    background: var(--color-surface-raised);
-  }
-
-  .media-filter-chip-active {
-    background: var(--color-primary-soft);
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
-
-  .media-filter-chip-image {
-    padding: 3px 8px 3px 3px;
-  }
-
-  .media-filter-thumb {
-    width: 26px;
-    height: 26px;
-    object-fit: cover;
-    border-radius: 50%;
-  }
-
-  .media-filter-label {
-    font-variant-numeric: tabular-nums;
-  }
-
-  .media-filter-count {
-    background: var(--color-primary);
-    color: var(--color-text-inverse, #fff);
-    border-radius: 999px;
-    padding: 0 6px;
-    font-size: var(--text-xs);
-    min-width: 20px;
-    text-align: center;
   }
 </style>
