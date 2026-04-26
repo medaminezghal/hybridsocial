@@ -32,6 +32,15 @@ defmodule Hybridsocial.Trending do
   defp hashtag_min_accounts,
     do: Hybridsocial.Config.get("trending_hashtag_min_accounts", 2)
 
+  # Floor on raw post count so a tag used once doesn't surface in
+  # trending. On instances tiny enough that `min_accounts` is dropped
+  # to 1, every tag-used-once would otherwise qualify and the
+  # trending list ends up listing every hashtag the instance has
+  # ever seen. Defaults to 2 — single-use tags are noise; two posts
+  # is the smallest signal that the author cares about it.
+  defp hashtag_min_posts,
+    do: Hybridsocial.Config.get("trending_hashtag_min_posts", 2)
+
   @doc """
   Computes trending posts based on recent engagement velocity,
   account diversity, and time decay. Stores results in trending_data.
@@ -359,6 +368,7 @@ defmodule Hybridsocial.Trending do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
     window_hours = hashtag_window_hours()
     min_accounts = hashtag_min_accounts()
+    min_posts = hashtag_min_posts()
     cutoff = DateTime.add(now, -window_hours, :hour)
 
     results =
@@ -378,7 +388,8 @@ defmodule Hybridsocial.Trending do
       })
       |> having(
         [_h, _ph, p],
-        fragment("COUNT(DISTINCT ?)", p.identity_id) >= ^min_accounts
+        fragment("COUNT(DISTINCT ?)", p.identity_id) >= ^min_accounts and
+          count(p.id, :distinct) >= ^min_posts
       )
       |> Repo.all()
 
