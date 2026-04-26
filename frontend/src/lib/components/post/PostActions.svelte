@@ -31,6 +31,16 @@
   };
 
   import { onMount } from 'svelte';
+  import { premiumCatalog, ensurePremiumCatalog, type PremiumReactionGlyph } from '$lib/stores/reaction-catalog.js';
+
+  // Premium reactions are admin-curated bare shortcodes like "fire".
+  // Without resolving them through the shared catalog they used to
+  // render as their literal text inside every reaction site (stack,
+  // current-reaction mark, floating animation, reactions modal).
+  ensurePremiumCatalog();
+  function premiumGlyph(type: string): PremiumReactionGlyph | undefined {
+    return $premiumCatalog.get(type);
+  }
 
   let isBoosted = $state(post.is_boosted);
   let boostCount = $state(post.boost_count);
@@ -539,6 +549,21 @@
 
 <svelte:window onclick={handleWindowClick} />
 
+{#snippet reactionGlyph(type: string, sizeClass: string)}
+  {#if reactionEmojis[type]}
+    <span class={sizeClass}>{reactionEmojis[type]}</span>
+  {:else}
+    {@const g = premiumGlyph(type)}
+    {#if g?.image_url}
+      <img class="{sizeClass} reaction-glyph-img" src={g.image_url} alt={type} />
+    {:else if g?.character}
+      <span class={sizeClass}>{g.character}</span>
+    {:else}
+      <span class={sizeClass}>{type}</span>
+    {/if}
+  {/if}
+{/snippet}
+
 <div class="post-actions" role="group" aria-label="Post actions">
   <!-- Reaction stack + Like button -->
   <div class="action-reaction-wrapper" onmouseenter={handleReactionHoverIn} onmouseleave={handleReactionHoverOut}>
@@ -553,7 +578,9 @@
       >
         <span class="reaction-stack-emojis">
           {#each sorted.slice(0, 3) as r, i (r.name)}
-            <span class="reaction-stack-emoji" style="z-index: {3 - i}">{reactionEmojis[r.name] ?? r.name}</span>
+            <span class="reaction-stack-emoji" style="z-index: {3 - i}">
+              {@render reactionGlyph(r.name, 'reaction-stack-glyph')}
+            </span>
           {/each}
         </span>
         <span class="reaction-stack-count">{reactionCount}</span>
@@ -575,13 +602,13 @@
         {#if currentReaction.startsWith(':') && currentReaction.endsWith(':')}
           <img class="current-reaction-custom" src="/api/v1/custom_emojis/{currentReaction.slice(1, -1)}/image" alt={currentReaction} />
         {:else}
-          <span class="current-reaction">{reactionEmojis[currentReaction] ?? currentReaction}</span>
+          {@render reactionGlyph(currentReaction, 'current-reaction')}
         {/if}
       {:else}
         <span class="material-symbols-outlined action-icon">favorite</span>
       {/if}
       {#if floatingEmoji}
-        <span class="floating-emoji">{reactionEmojis[floatingEmoji] ?? floatingEmoji}</span>
+        {@render reactionGlyph(floatingEmoji, 'floating-emoji')}
       {/if}
     </button>
 
@@ -876,7 +903,7 @@
               class:reactions-tab-active={reactionDetailTab === group.type}
               onclick={() => reactionDetailTab = group.type}
             >
-              <span class="reactions-tab-emoji">{reactionEmojis[group.type] ?? group.type}</span>
+              {@render reactionGlyph(group.type, 'reactions-tab-emoji')}
               <span class="reactions-tab-count">{group.count}</span>
             </button>
           {/each}
@@ -895,7 +922,7 @@
                         {(account.display_name || account.handle).charAt(0).toUpperCase()}
                       </div>
                     {/if}
-                    <span class="reactions-user-emoji">{reactionEmojis[group.type] ?? group.type}</span>
+                    {@render reactionGlyph(group.type, 'reactions-user-emoji')}
                   </div>
                   <div class="reactions-user-info">
                     <span class="reactions-user-name">{account.display_name || account.acct || account.handle}</span>
@@ -1051,6 +1078,33 @@
     width: 20px;
     height: 20px;
     object-fit: contain;
+  }
+
+  /* Premium-reaction images. Each render site already has its own
+     class (current-reaction, floating-emoji, reactions-tab-emoji,
+     reactions-user-emoji, reaction-stack-glyph) that sizes the
+     surrounding glyph as text — match those with object-fit so the
+     <img> sits at the same visual size as a 1em emoji span. */
+  .reaction-glyph-img {
+    width: 1.1em;
+    height: 1.1em;
+    object-fit: contain;
+    vertical-align: middle;
+  }
+
+  .current-reaction.reaction-glyph-img,
+  .floating-emoji.reaction-glyph-img {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .reaction-stack-glyph {
+    display: inline-flex;
+    line-height: 1;
+  }
+  .reaction-stack-glyph.reaction-glyph-img {
+    width: 1rem;
+    height: 1rem;
   }
 
   .bounce {
