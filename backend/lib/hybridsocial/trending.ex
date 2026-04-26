@@ -460,7 +460,13 @@ defmodule Hybridsocial.Trending do
       |> where([p, _ph], p.inserted_at >= ^history_cutoff and is_nil(p.deleted_at))
       |> group_by([p, ph], [ph.hashtag_id, fragment("date_trunc('day', ?)", p.inserted_at)])
       |> select([p, ph], %{
-        hashtag_id: ph.hashtag_id,
+        # `post_hashtags` is queried as a raw table source, so without
+        # an explicit `type/2` cast Postgrex returns `hashtag_id` as
+        # a 16-byte binary blob. The caller's keys are string UUIDs
+        # from the `Hashtag` schema, so every Map.get fell through
+        # to the default `[0,0,0,0,0,0,0]` and the sparkline went
+        # flat. Cast in the SELECT so the keys match.
+        hashtag_id: type(ph.hashtag_id, Ecto.UUID),
         bucket: fragment("date_trunc('day', ?)", p.inserted_at),
         count: count(p.id, :distinct)
       })
