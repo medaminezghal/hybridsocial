@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import ReactionPicker from '$lib/components/post/ReactionPicker.svelte';
+  import { premiumCatalog, ensurePremiumCatalog } from '$lib/stores/reaction-catalog.js';
 
   interface Slide {
     url: string;
@@ -8,8 +10,12 @@
     id?: string;
     /** Server-reported reaction count for this image (Instagram-style). */
     reactionCount?: number;
-    /** Whether the viewer has already reacted to this image. */
-    reacted?: boolean;
+    /**
+     * The viewer's current reaction shortcode (e.g. "like", "fire") or
+     * null if they haven't reacted. Drives the heart fill / glyph and
+     * lets the picker mark the active choice.
+     */
+    currentReaction?: string | null;
   }
 
   let {
@@ -30,14 +36,32 @@
      */
     onreply?: (mediaId: string, mediaIndex: number) => void;
     /**
-     * Instagram-style heart on the lightbox image. Receives the
-     * targeted media's id and the next desired state. Caller is
-     * expected to POST/DELETE /api/v1/statuses/:id/react with
-     * target_media_id and update the slide's reactionCount /
-     * reacted flag.
+     * Per-image reaction. `next` is the chosen reaction shortcode
+     * (e.g. "like", "love", "fire") or `null` to remove the current
+     * reaction. Caller is expected to POST/DELETE
+     * /api/v1/statuses/:id/react with `target_media_id` and update
+     * the slide's `currentReaction` / `reactionCount`.
      */
-    onreact?: (mediaId: string, next: boolean) => void;
+    onreact?: (mediaId: string, next: string | null) => void;
   } = $props();
+
+  // Pull the premium catalog so we can render the user's currently
+  // selected emoji on the heart button and on the burst animation
+  // even when it's a premium glyph like 🔥.
+  ensurePremiumCatalog();
+
+  const DEFAULT_REACTION_EMOJI: Record<string, string> = {
+    like: '\u{1F44D}',
+    love: '\u{2764}\u{FE0F}',
+    wow: '\u{1F92F}',
+    care: '\u{1F970}',
+    angry: '\u{1F621}',
+    sad: '\u{1F622}',
+    lol: '\u{1F602}',
+  };
+
+  let pickerOpen = $state(false);
+  let pickerHoverTimer: ReturnType<typeof setTimeout> | null = null;
 
   let zoomed = $state(false);
   // Instagram-style double-tap-to-like: when the user taps the image
@@ -80,8 +104,8 @@
     const isDoubleTap = now - lastTapAt < 320;
     lastTapAt = now;
 
-    if (isDoubleTap && onreact && current?.id && !current.reacted) {
-      onreact(current.id, true);
+    if (isDoubleTap && onreact && current?.id && !current.currentReaction) {
+      onreact(current.id, 'like');
       burstAt = now;
       return;
     }
@@ -89,6 +113,65 @@
     if (!isDoubleTap) {
       toggleZoom();
     }
+  }
+
+  // Heart button: a single click toggles the default thumbs-up,
+  // hover/long-press opens the full reaction picker (7 default + 7
+  // premium for premium tiers).
+  function handleHeartClick() {
+    if (!onreact || !current?.id) return;
+    if (current.currentReaction) {
+      // Already reacted — toggle off.
+      onreact(current.id, null);
+    } else {
+      onreact(current.id, 'like');
+      burstAt = performance.now();
+    }
+  }
+
+  function handleHeartEnter() {
+    if (pickerHoverTimer) clearTimeout(pickerHoverTimer);
+    pickerHoverTimer = setTimeout(() => {
+      pickerOpen = true;
+    }, 220);
+  }
+
+  function handleHeartLeave() {
+    if (pickerHoverTimer) clearTimeout(pickerHoverTimer);
+    pickerHoverTimer = setTimeout(() => {
+      pickerOpen = false;
+    }, 180);
+  }
+
+  function handlePickerKeep() {
+    if (pickerHoverTimer) clearTimeout(pickerHoverTimer);
+  }
+
+  function handlePickerSelect(type: string) {
+    if (!onreact || !current?.id) return;
+    pickerOpen = false;
+    if (current.currentReaction === type) {
+      onreact(current.id, null);
+    } else {
+      onreact(current.id, type);
+      burstAt = performance.now();
+    }
+  }
+
+  // Resolve a reaction shortcode to an emoji char or image url so the
+  // heart button can show what the user picked, and the burst animation
+  // can flash the right glyph.
+  function reactionGlyph(type: string | null | undefined):
+    | { kind: 'char'; value: string }
+    | { kind: 'image'; src: string }
+    | null {
+    if (!type) return null;
+    const def = DEFAULT_REACTION_EMOJI[type];
+    if (def) return { kind: 'char', value: def };
+    const premium = $premiumCatalog.get(type);
+    if (premium?.image_url) return { kind: 'image', src: premium.image_url };
+    if (premium?.character) return { kind: 'char', value: premium.character };
+    return null;
   }
 
   async function download() {
@@ -165,21 +248,48 @@
       <span class="material-symbols-outlined">download</span>
     </button>
     {#if onreact && current?.id}
-      <button
-        type="button"
-        class="lightbox-btn lightbox-btn-react"
-        class:lightbox-btn-reacted={current.reacted}
-        onclick={() => onreact!(current.id!, !current.reacted)}
-        aria-label={current.reacted ? 'Remove reaction' : 'React to this image'}
-        title={current.reacted ? 'Remove reaction' : 'React to this image'}
+      {@const glyph = reactionGlyph(current.currentReaction)}
+      <div
+        class="lightbox-react-wrap"
+        onmouseenter={handleHeartEnter}
+        onmouseleave={handleHeartLeave}
+        role="presentation"
       >
-        <span class="material-symbols-outlined" class:material-symbols-filled={current.reacted}>
-          favorite
-        </span>
-        {#if current.reactionCount && current.reactionCount > 0}
-          <span class="lightbox-react-count">{current.reactionCount}</span>
+        <button
+          type="button"
+          class="lightbox-btn lightbox-btn-react"
+          class:lightbox-btn-reacted={!!current.currentReaction}
+          onclick={handleHeartClick}
+          aria-label={current.currentReaction ? 'Remove reaction' : 'React to this image'}
+          aria-haspopup="dialog"
+          aria-expanded={pickerOpen}
+          title={current.currentReaction ? 'Click to remove · hover for picker' : 'React to this image'}
+        >
+          {#if glyph?.kind === 'image'}
+            <img class="lightbox-react-img" src={glyph.src} alt="" />
+          {:else if glyph?.kind === 'char'}
+            <span class="lightbox-react-emoji">{glyph.value}</span>
+          {:else}
+            <span class="material-symbols-outlined">favorite</span>
+          {/if}
+          {#if current.reactionCount && current.reactionCount > 0}
+            <span class="lightbox-react-count">{current.reactionCount}</span>
+          {/if}
+        </button>
+        {#if pickerOpen}
+          <div
+            class="lightbox-picker-anchor"
+            onmouseenter={handlePickerKeep}
+            onmouseleave={handleHeartLeave}
+            role="presentation"
+          >
+            <ReactionPicker
+              selected={current.currentReaction ?? null}
+              onselect={handlePickerSelect}
+            />
+          </div>
         {/if}
-      </button>
+      </div>
     {/if}
     {#if onreply && current?.id}
       <button
@@ -229,9 +339,16 @@
       onclick={(e) => { e.stopPropagation(); handleImageTap(); }}
     />
     {#if burstAt > 0}
+      {@const burstGlyph = reactionGlyph(current.currentReaction ?? 'like')}
       {#key burstAt}
         <span class="lightbox-burst" aria-hidden="true">
-          <span class="material-symbols-outlined material-symbols-filled">favorite</span>
+          {#if burstGlyph?.kind === 'image'}
+            <img class="lightbox-burst-img" src={burstGlyph.src} alt="" />
+          {:else if burstGlyph?.kind === 'char'}
+            <span class="lightbox-burst-emoji">{burstGlyph.value}</span>
+          {:else}
+            <span class="material-symbols-outlined material-symbols-filled">favorite</span>
+          {/if}
         </span>
       {/key}
     {/if}
@@ -378,8 +495,12 @@
     z-index: 2;
   }
 
-  /* Heart button: round count chip when count > 0, otherwise just the
-     icon. The reacted state colours the icon red and draws it filled. */
+  /* Heart button + picker. Wrap so hover-into-picker doesn't trigger
+     the leave timeout on the button. */
+  .lightbox-react-wrap {
+    position: relative;
+  }
+
   .lightbox-btn-react {
     width: auto;
     min-width: 40px;
@@ -401,6 +522,27 @@
     line-height: 1;
   }
 
+  .lightbox-react-emoji {
+    font-size: 22px;
+    line-height: 1;
+  }
+
+  .lightbox-react-img {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+  }
+
+  /* Picker pops down beneath the heart button (the lightbox tools live
+     at the top-left of the viewport, so dropping is the only direction
+     with room). */
+  .lightbox-picker-anchor {
+    position: absolute;
+    inset-block-start: calc(100% + 8px);
+    inset-inline-start: 0;
+    z-index: 4;
+  }
+
   /* Double-tap heart burst — pops above the image, fades out fast. */
   .lightbox-burst {
     position: absolute;
@@ -418,6 +560,19 @@
     color: rgba(255, 255, 255, 0.95);
     text-shadow: 0 6px 30px rgba(0, 0, 0, 0.5);
     font-variation-settings: 'FILL' 1;
+  }
+
+  .lightbox-burst-emoji {
+    font-size: 140px;
+    line-height: 1;
+    text-shadow: 0 6px 30px rgba(0, 0, 0, 0.5);
+  }
+
+  .lightbox-burst-img {
+    width: 140px;
+    height: 140px;
+    object-fit: contain;
+    filter: drop-shadow(0 6px 30px rgba(0, 0, 0, 0.5));
   }
 
   @keyframes lightbox-burst {

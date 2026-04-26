@@ -133,6 +133,10 @@ export interface Post {
   root_id: string | null;
   /** Optional id of the parent's media attachment that this reply targets. */
   target_media_id?: string | null;
+  /** 1-based position of `target_media_id` in the parent's gallery. */
+  target_media_index?: number | null;
+  /** Preview/thumbnail URL of the targeted image, for the reply indicator. */
+  target_media_preview_url?: string | null;
   /**
    * Per-image reply counts keyed by media id. Only populated for posts that
    * own media attachments. `{}` for text-only or replies.

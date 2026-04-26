@@ -136,11 +136,12 @@
   // own inline <video controls>.
   //
   // Per-image reaction counts ride alongside each slide so the lightbox
-  // can render an Instagram-style heart with the current count. We
-  // also need a local mirror of the "did the viewer react?" flag so
-  // the heart can fill / unfill optimistically without re-fetching the
-  // post. The optimistic state is keyed by media id.
-  let mediaReactionOverrides: Record<string, { reacted: boolean; delta: number }> = $state({});
+  // can render the picker + count. We also keep a local override map
+  // for the optimistic "I just reacted" state so the heart updates
+  // without re-fetching the post. Override stores the chosen reaction
+  // type (e.g. "like", "fire") plus the delta to apply to the count.
+  let mediaReactionOverrides: Record<string, { currentReaction: string | null; delta: number }> =
+    $state({});
 
   let lightboxImages = $derived(
     mediaAttachments
@@ -153,35 +154,44 @@
           url: m.url,
           alt: m.description,
           reactionCount: Math.max(0, baseCount + (override?.delta ?? 0)),
-          reacted: override?.reacted ?? false,
+          currentReaction: override?.currentReaction ?? null,
         };
       })
   );
   let lightboxOpen = $state(false);
   let lightboxIndex = $state(0);
 
-  async function handleMediaReact(mediaId: string, next: boolean) {
+  async function handleMediaReact(mediaId: string, next: string | null) {
     const prev = mediaReactionOverrides[mediaId];
-    const wasReacted = prev?.reacted ?? false;
-    if (wasReacted === next) return;
+    const prevReaction = prev?.currentReaction ?? null;
+    if (prevReaction === next) return;
 
-    // Optimistic toggle. Server response either confirms or we revert.
+    // Compute the count delta. Switching between two reactions doesn't
+    // change the headline count (still one reaction from this user) —
+    // only adding or removing does.
+    let countDelta = 0;
+    if (prevReaction === null && next !== null) countDelta = 1;
+    else if (prevReaction !== null && next === null) countDelta = -1;
+
     mediaReactionOverrides = {
       ...mediaReactionOverrides,
       [mediaId]: {
-        reacted: next,
-        delta: (prev?.delta ?? 0) + (next ? 1 : -1),
+        currentReaction: next,
+        delta: (prev?.delta ?? 0) + countDelta,
       },
     };
 
     try {
-      if (next) {
-        await api.post(`/api/v1/statuses/${post.id}/react`, {
-          type: 'like',
+      if (next === null) {
+        await api.delete(`/api/v1/statuses/${post.id}/react`, {
           target_media_id: mediaId,
         });
       } else {
-        await api.delete(`/api/v1/statuses/${post.id}/react`, {
+        // POST /react is upsert-style on the backend (existing reaction
+        // updates its type), so switching from "like" to "fire"
+        // doesn't need a DELETE first.
+        await api.post(`/api/v1/statuses/${post.id}/react`, {
+          type: next,
           target_media_id: mediaId,
         });
       }
@@ -189,7 +199,7 @@
       // Revert on failure.
       mediaReactionOverrides = {
         ...mediaReactionOverrides,
-        [mediaId]: prev ?? { reacted: false, delta: 0 },
+        [mediaId]: prev ?? { currentReaction: null, delta: 0 },
       };
     }
   }
@@ -483,7 +493,14 @@
         <div class="post-reply-indicator">
           <span class="material-symbols-outlined reply-icon" aria-hidden="true">reply</span>
           {#if post.target_media_id}
-            <span>Replying to a specific image</span>
+            <a class="reply-target-media" href="/post/{post.parent_id}" onclick={(e) => e.stopPropagation()}>
+              {#if post.target_media_preview_url}
+                <img class="reply-target-thumb" src={post.target_media_preview_url} alt="" />
+              {/if}
+              <span>
+                Replying to {post.target_media_index ? `image #${post.target_media_index}` : 'a specific image'}
+              </span>
+            </a>
           {:else if post.in_reply_to_account_id}
             <span>Replying to <a href="/post/{post.parent_id}" class="reply-to-link">a post</a></span>
           {:else}
@@ -1156,6 +1173,31 @@
 
   .reply-to-link:hover {
     text-decoration: underline;
+  }
+
+  .reply-target-media {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: inherit;
+    text-decoration: none;
+    padding: 2px 8px 2px 2px;
+    border-radius: 999px;
+    background: var(--color-surface-raised, var(--color-surface));
+    border: 1px solid var(--color-border);
+    line-height: 1;
+  }
+
+  .reply-target-media:hover {
+    background: var(--color-surface-container-low, var(--color-surface-raised));
+  }
+
+  .reply-target-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
   }
 
   /* Link Card */

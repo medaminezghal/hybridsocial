@@ -105,6 +105,17 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
         %{}
       end
 
+    # When this post is a per-image reply, include the parent's image
+    # number (1-based) + preview url so the card can render
+    # "Replying to image N" with a thumbnail instead of just the
+    # generic "Replying to a specific image". Skips the lookup
+    # entirely for posts that aren't pinned to a media.
+    target_media_summary =
+      case Map.get(post, :target_media_id) do
+        nil -> nil
+        media_id -> target_media_summary_for(post.parent_id, media_id)
+      end
+
     # URIs
     base_url = HybridsocialWeb.Endpoint.url()
 
@@ -134,6 +145,8 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
       parent_id: post.parent_id,
       root_id: post.root_id,
       target_media_id: Map.get(post, :target_media_id),
+      target_media_index: target_media_summary && target_media_summary.index,
+      target_media_preview_url: target_media_summary && target_media_summary.preview_url,
       media_reply_counts: media_reply_counts,
       media_reaction_counts: media_reaction_counts,
       in_reply_to_account_id: in_reply_to_account_id,
@@ -503,6 +516,40 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
     |> select([p], {p.target_media_id, count(p.id)})
     |> Repo.all()
     |> Map.new()
+  end
+
+  # Resolves a target_media_id to its 1-based position in the parent
+  # post's gallery + a preview url. Returns nil when the parent has
+  # been deleted or the media has been removed (FK is nilify_all so
+  # `target_media_id` may legitimately point to a row that no longer
+  # exists in `media`). Same ordering as `media_attachments_for/1`.
+  defp target_media_summary_for(nil, _media_id), do: nil
+
+  defp target_media_summary_for(parent_id, media_id) do
+    medias =
+      MediaFile
+      |> where([m], m.post_id == ^parent_id and is_nil(m.deleted_at))
+      |> order_by([m], asc: m.inserted_at)
+      |> Repo.all()
+
+    case Enum.find_index(medias, &(&1.id == media_id)) do
+      nil ->
+        nil
+
+      idx ->
+        media = Enum.at(medias, idx)
+
+        url =
+          if is_binary(media.remote_url) do
+            Hybridsocial.Media.MediaProxy.url(media.remote_url)
+          else
+            Hybridsocial.Media.media_url(media)
+          end
+
+        preview_url = thumbnail_url(media) || url
+
+        %{index: idx + 1, preview_url: preview_url}
+    end
   end
 
   # Returns a `%{media_id => count}` map of reactions scoped to a
