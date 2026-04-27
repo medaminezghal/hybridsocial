@@ -20,7 +20,7 @@ defmodule Hybridsocial.Feeds.Algorithms.Trending do
   import Ecto.Query
 
   alias Hybridsocial.Repo
-  alias Hybridsocial.Social.Post
+  alias Hybridsocial.Social.{Follow, Post}
   alias Hybridsocial.Feeds.Visibility
 
   @default_limit 20
@@ -138,8 +138,12 @@ defmodule Hybridsocial.Feeds.Algorithms.Trending do
 
   defp fetch_follower_counts([]), do: %{}
 
+  # Use the Follow schema (not the raw "follows" table) so Ecto can
+  # dump the UUID list to Postgres `uuid[]`. With the raw table form
+  # the array bind goes in as 36-char strings and Postgrex 0.22 fails
+  # with `expected a binary of 16 bytes` from Array.encode.
   defp fetch_follower_counts(identity_ids) do
-    from(f in "follows",
+    from(f in Follow,
       where: f.followee_id in ^identity_ids and f.status == "accepted",
       group_by: f.followee_id,
       select: {f.followee_id, count(f.id)}
