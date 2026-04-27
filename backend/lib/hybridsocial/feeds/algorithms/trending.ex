@@ -144,7 +144,7 @@ defmodule Hybridsocial.Feeds.Algorithms.Trending do
   # with `expected a binary of 16 bytes` from Array.encode.
   defp fetch_follower_counts(identity_ids) do
     from(f in Follow,
-      where: f.followee_id in ^identity_ids and f.status == "accepted",
+      where: f.followee_id in ^identity_ids and f.status == :accepted,
       group_by: f.followee_id,
       select: {f.followee_id, count(f.id)}
     )
