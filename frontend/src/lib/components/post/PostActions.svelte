@@ -565,9 +565,91 @@
 {/snippet}
 
 <div class="post-actions" role="group" aria-label="Post actions">
-  <!-- Reaction stack + Like button -->
-  <div class="action-reaction-wrapper" onmouseenter={handleReactionHoverIn} onmouseleave={handleReactionHoverOut}>
-    <!-- Stacked emoji display (clickable for detail) -->
+  <div class="post-actions-left">
+    <!-- Like / React -->
+    <div class="action-reaction-wrapper" onmouseenter={handleReactionHoverIn} onmouseleave={handleReactionHoverOut}>
+      <button
+        type="button"
+        class="action-btn action-like"
+        class:active-reaction={currentReaction !== null}
+        class:bounce={bounceReaction}
+        bind:this={reactionTriggerEl}
+        onclick={toggleReactionPicker}
+        aria-label="React"
+        aria-expanded={showReactionPicker}
+      >
+        {#if currentReaction}
+          {#if currentReaction.startsWith(':') && currentReaction.endsWith(':')}
+            <img class="current-reaction-custom" src="/api/v1/custom_emojis/{currentReaction.slice(1, -1)}/image" alt={currentReaction} />
+          {:else}
+            {@render reactionGlyph(currentReaction, 'current-reaction')}
+          {/if}
+        {:else}
+          <span class="material-symbols-outlined action-icon">thumb_up</span>
+        {/if}
+        {#if reactionCount > 0}
+          <span class="action-count">{reactionCount}</span>
+        {/if}
+        {#if floatingEmoji}
+          {@render reactionGlyph(floatingEmoji, 'floating-emoji')}
+        {/if}
+      </button>
+
+      {#if showReactionPicker}
+        <div class="picker-anchor" class:picker-anchor-below={reactionPickerBelow}>
+          <ReactionPicker
+            selected={currentReaction}
+            onselect={handleReaction}
+          />
+        </div>
+      {/if}
+    </div>
+
+    <!-- Comment -->
+    {#if post.replies_locked_at}
+      <button
+        type="button"
+        class="action-btn action-reply action-reply-locked"
+        disabled
+        aria-label="Replies are disabled on this post"
+        title="Replies are disabled on this post"
+      >
+        <span class="material-symbols-outlined action-icon">speaker_notes_off</span>
+        <span class="action-locked-label">Replies disabled</span>
+      </button>
+    {:else}
+      <button
+        type="button"
+        class="action-btn action-reply"
+        onclick={handleReply}
+        onkeydown={(e) => handleActionKeydown(e, () => handleReply(new MouseEvent('click')))}
+        aria-label="Reply ({replyCount})"
+      >
+        <span class="material-symbols-outlined action-icon" class:filled={replyCount > 0}>chat_bubble</span>
+        {#if replyCount > 0}
+          <span class="action-count">{replyCount}</span>
+        {/if}
+      </button>
+    {/if}
+
+    <!-- Share / Boost -->
+    <button
+      type="button"
+      class="action-btn action-boost"
+      class:active-boost={isBoosted}
+      onclick={handleBoost}
+      aria-label="{isBoosted ? 'Undo boost' : 'Boost'} ({boostCount})"
+      aria-pressed={isBoosted}
+    >
+      <span class="material-symbols-outlined action-icon">cached</span>
+      {#if boostCount > 0}
+        <span class="action-count">{boostCount}</span>
+      {/if}
+    </button>
+  </div>
+
+  <div class="post-actions-right">
+    <!-- Top reactions used by others (clickable for detail) -->
     {#if reactionCount > 0}
       {@const sorted = reactions.filter(r => r.count > 0).sort((a, b) => b.count - a.count)}
       <button
@@ -583,91 +665,11 @@
             </span>
           {/each}
         </span>
-        <span class="reaction-stack-count">{reactionCount}</span>
       </button>
     {/if}
 
-    <!-- Like/react button -->
-    <button
-      type="button"
-      class="action-btn action-like"
-      class:active-reaction={currentReaction !== null}
-      class:bounce={bounceReaction}
-      bind:this={reactionTriggerEl}
-      onclick={toggleReactionPicker}
-      aria-label="React"
-      aria-expanded={showReactionPicker}
-    >
-      {#if currentReaction}
-        {#if currentReaction.startsWith(':') && currentReaction.endsWith(':')}
-          <img class="current-reaction-custom" src="/api/v1/custom_emojis/{currentReaction.slice(1, -1)}/image" alt={currentReaction} />
-        {:else}
-          {@render reactionGlyph(currentReaction, 'current-reaction')}
-        {/if}
-      {:else}
-        <span class="material-symbols-outlined action-icon">favorite</span>
-      {/if}
-      {#if floatingEmoji}
-        {@render reactionGlyph(floatingEmoji, 'floating-emoji')}
-      {/if}
-    </button>
-
-    {#if showReactionPicker}
-      <div class="picker-anchor" class:picker-anchor-below={reactionPickerBelow}>
-        <ReactionPicker
-          selected={currentReaction}
-          onselect={handleReaction}
-        />
-      </div>
-    {/if}
-  </div>
-
-  <!-- Reply (disabled when admin has locked replies on this thread) -->
-  {#if post.replies_locked_at}
-    <button
-      type="button"
-      class="action-btn action-reply action-reply-locked"
-      disabled
-      aria-label="Replies are disabled on this post"
-      title="Replies are disabled on this post"
-    >
-      <span class="material-symbols-outlined action-icon">speaker_notes_off</span>
-      <span class="action-locked-label">Replies disabled</span>
-    </button>
-  {:else}
-    <button
-      type="button"
-      class="action-btn action-reply"
-      onclick={handleReply}
-      onkeydown={(e) => handleActionKeydown(e, () => handleReply(new MouseEvent('click')))}
-      aria-label="Reply ({replyCount})"
-    >
-      {#if replyCount > 0}
-        <span class="material-symbols-outlined action-icon filled">chat_bubble</span>
-        <span class="action-count">{replyCount}</span>
-      {:else}
-        <span class="material-symbols-outlined action-icon">chat_bubble</span>
-      {/if}
-    </button>
-  {/if}
-
-  <!-- Boost / Share -->
-  <button
-    type="button"
-    class="action-btn action-boost"
-    class:active-boost={isBoosted}
-    onclick={handleBoost}
-    aria-label="{isBoosted ? 'Undo boost' : 'Boost'} ({boostCount})"
-    aria-pressed={isBoosted}
-  >
-    <span class="material-symbols-outlined action-icon">cached</span>
-    {#if boostCount > 0}
-      <span class="action-count">{boostCount}</span>
-    {/if}
-  </button>
-
-  <!-- Options (3 dots) -->
-  <div class="action-more-wrapper">
+    <!-- Options (3 dots) -->
+    <div class="action-more-wrapper">
     <button
       type="button"
       class="action-btn action-options"
@@ -747,6 +749,7 @@
         {/if}
       </div>
     {/if}
+    </div>
   </div>
 </div>
 
@@ -976,27 +979,43 @@
 {/if}
 
 <style>
-  /* ---- Action Bar ---- */
+  /* ---- Action Bar ----
+     Two groups: primary controls (like / comment / boost) on the
+     start side, social-proof reactions stack + overflow menu on the
+     end side. The .post-actions-divider above (in PostCard.svelte)
+     supplies the Facebook-style hairline separator. */
   .post-actions {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    max-width: 28rem;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .post-actions-left,
+  .post-actions-right {
+    display: flex;
+    align-items: center;
+    gap: 2px;
   }
 
   .action-btn {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 8px;
+    padding: 4px 8px;
     background: transparent;
     border: none;
     border-radius: 9999px;
     color: var(--color-text-secondary);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     cursor: pointer;
-    transition: color 150ms ease, transform 150ms ease;
+    transition: color 150ms ease, transform 150ms ease, background-color 150ms ease;
     line-height: 1;
+  }
+
+  .action-btn:hover {
+    background: var(--color-surface);
   }
 
   .action-icon {
@@ -1103,8 +1122,8 @@
     line-height: 1;
   }
   .reaction-stack-glyph.reaction-glyph-img {
-    width: 1rem;
-    height: 1rem;
+    width: 0.85rem;
+    height: 0.85rem;
   }
 
   .bounce {
@@ -1171,16 +1190,15 @@
     overflow: visible;
   }
 
-  /* ---- Stacked emoji display ---- */
+  /* ---- Stacked emoji display (right-side social proof) ---- */
   .reaction-stack {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
     background: none;
     border: none;
     cursor: pointer;
     padding: 2px 4px;
-    border-radius: 10px;
+    border-radius: 9999px;
     transition: background 150ms ease;
   }
 
@@ -1196,29 +1214,22 @@
 
   .reaction-stack-emoji {
     line-height: 1;
-    margin-inline-start: -6px;
+    margin-inline-start: -5px;
     background: var(--color-surface-container-lowest);
-    border: 2px solid var(--color-surface-container-lowest);
+    border: 1.5px solid var(--color-surface-container-lowest);
     border-radius: 50%;
-    width: 22px;
-    height: 22px;
+    width: 18px;
+    height: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     position: relative;
-    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.08);
   }
 
   .reaction-stack-emoji:last-child {
     margin-inline-start: 0;
-  }
-
-  .reaction-stack-count {
-    font-size: var(--text-xs);
-    font-weight: 600;
-    color: var(--color-text-secondary);
-    margin-inline-start: 4px;
   }
 
   /* ---- Reactions Modal ---- */

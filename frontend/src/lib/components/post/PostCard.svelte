@@ -691,7 +691,7 @@
             <QuoteCard post={post.quote} />
           {/if}
 
-          {#if post.card && !compact}
+          {#if post.card && !compact && mediaAttachments.length === 0}
             <a href={post.card.url} class="link-card" target="_blank" rel="noopener noreferrer" onclick={(e) => e.stopPropagation()}>
               {#if post.card.image && !cardImageBroken}
                 <div class="link-card-image">
