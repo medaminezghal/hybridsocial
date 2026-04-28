@@ -87,7 +87,10 @@ defmodule Hybridsocial.Feeds.Algorithm do
       |> Repo.all()
       |> Map.new(fn s -> {s.target_identity_id, s} end)
 
-    # Get candidate posts: from followed accounts + popular public posts
+    # Get candidate posts: from followed accounts + popular public posts.
+    # `apply_post_visibility` enforces the per-post audience gate so a
+    # followed user's direct/list posts don't leak through the
+    # algorithmic timeline.
     followed_posts =
       Post
       |> where([p], p.identity_id in ^followed_ids)
@@ -95,6 +98,9 @@ defmodule Hybridsocial.Feeds.Algorithm do
       |> where([p], is_nil(p.parent_id))
       |> where([p], p.inserted_at >= ^cutoff)
       |> apply_post_cursor(cursor)
+      |> Visibility.apply_post_visibility(identity_id)
+      |> Visibility.apply_block_filter(identity_id)
+      |> Visibility.apply_mute_filter(identity_id)
       |> Visibility.apply_shadow_ban_filter(identity_id)
       |> preload([:identity, :quote])
       |> Repo.all()

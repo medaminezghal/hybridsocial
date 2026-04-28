@@ -51,7 +51,13 @@ defmodule Hybridsocial.Feeds.Algorithms.Chronological do
         select: ph.post_id
       )
 
-    # Original posts from followed accounts + own posts + followed tags
+    # Original posts from followed accounts + own posts + followed tags.
+    # `apply_post_visibility` is the per-post audience gate: it keeps
+    # public/unlisted plus followers-only when the viewer follows the
+    # author, plus direct/list/group when the viewer is a recipient
+    # / member, plus the viewer's own posts at any visibility. Without
+    # this, a followed user's direct DMs to a third party would leak
+    # into every follower's home feed.
     posts_query =
       Post
       |> where(
@@ -63,6 +69,7 @@ defmodule Hybridsocial.Feeds.Algorithms.Chronological do
       |> where([p], is_nil(p.deleted_at))
       |> where([p], is_nil(p.parent_id))
       |> apply_post_cursor(cursor)
+      |> Visibility.apply_post_visibility(identity_id)
       |> Visibility.apply_block_filter(identity_id)
       |> Visibility.apply_mute_filter(identity_id)
       |> Visibility.apply_shadow_ban_filter(identity_id)

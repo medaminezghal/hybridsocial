@@ -6,8 +6,9 @@ defmodule Hybridsocial.Feeds.Visibility do
   """
   import Ecto.Query
 
-  alias Hybridsocial.Social.{Follow, Block, Mute}
+  alias Hybridsocial.Social.{Follow, Block, Mute, PostMention, ListMember}
   alias Hybridsocial.Accounts.Identity
+  alias Hybridsocial.Repo
 
   @doc """
   Checks if a specific post is visible to a viewer.
@@ -29,11 +30,10 @@ defmodule Hybridsocial.Feeds.Visibility do
     end
   end
 
-  defp check_visibility(%{visibility: "public"}, _viewer_id), do: true
+  defp check_visibility(%{visibility: vis}, _viewer_id) when vis in ["public", "unlisted"],
+    do: true
 
   defp check_visibility(%{visibility: "followers", identity_id: author_id}, viewer_id) do
-    alias Hybridsocial.Repo
-
     Follow
     |> where(
       [f],
@@ -44,21 +44,27 @@ defmodule Hybridsocial.Feeds.Visibility do
     |> Repo.exists?()
   end
 
-  defp check_visibility(%{visibility: "direct"}, _viewer_id) do
-    # Stub: post_recipients table does not exist yet.
-    # When it does, check if viewer_id is in post_recipients for this post.
-    false
+  defp check_visibility(%{visibility: "direct", id: post_id}, viewer_id) do
+    PostMention
+    |> where([pm], pm.post_id == ^post_id and pm.identity_id == ^viewer_id)
+    |> Repo.exists?()
   end
 
-  defp check_visibility(%{visibility: "list"}, _viewer_id) do
-    # Stub: check if viewer is in the associated list.
-    false
+  defp check_visibility(%{visibility: "list", list_id: list_id}, viewer_id)
+       when not is_nil(list_id) do
+    ListMember
+    |> where([m], m.list_id == ^list_id and m.identity_id == ^viewer_id)
+    |> Repo.exists?()
   end
 
-  defp check_visibility(%{visibility: "group"}, _viewer_id) do
-    # Stub: group membership check not implemented yet.
-    true
+  defp check_visibility(%{visibility: "list"}, _viewer_id), do: false
+
+  defp check_visibility(%{visibility: "group", group_id: group_id}, viewer_id)
+       when not is_nil(group_id) do
+    Hybridsocial.Groups.member?(group_id, viewer_id)
   end
+
+  defp check_visibility(%{visibility: "group"}, _viewer_id), do: false
 
   defp check_visibility(_post, _viewer_id), do: false
 
@@ -73,18 +79,61 @@ defmodule Hybridsocial.Feeds.Visibility do
   end
 
   def apply_visibility_filter(query, viewer_identity_id) do
+    apply_post_visibility(query, viewer_identity_id)
+  end
+
+  @doc """
+  Comprehensive visibility filter that mirrors `viewer_can_read?/2` in
+  query form. Use this anywhere a query may surface posts of any
+  visibility (profile feeds, search, federation, list timelines).
+
+  Includes:
+    * public / unlisted — everyone (subject to other filters)
+    * the viewer's own posts — any visibility
+    * followers — only posts from accounts the viewer follows
+    * direct — only posts where the viewer is in `post_mentions`
+    * list — only posts whose list_id has the viewer in `list_members`
+    * group — only posts whose group has the viewer as a member
+
+  When `viewer_id` is nil, only public/unlisted posts pass.
+  """
+  def apply_post_visibility(query, nil) do
+    where(query, [p], p.visibility in ["public", "unlisted"])
+  end
+
+  def apply_post_visibility(query, viewer_id) do
     followed_ids_subquery =
       Follow
-      |> where([f], f.follower_id == ^viewer_identity_id and f.status == :accepted)
+      |> where([f], f.follower_id == ^viewer_id and f.status == :accepted)
       |> select([f], f.followee_id)
+
+    mentioned_post_ids =
+      PostMention
+      |> where([pm], pm.identity_id == ^viewer_id)
+      |> select([pm], pm.post_id)
+
+    list_ids_subquery =
+      ListMember
+      |> where([m], m.identity_id == ^viewer_id)
+      |> select([m], m.list_id)
+
+    group_ids_subquery =
+      from(gm in "group_members",
+        where: gm.identity_id == type(^viewer_id, Ecto.UUID),
+        select: gm.group_id
+      )
 
     where(
       query,
       [p],
-      p.visibility == "public" or
-        p.identity_id == ^viewer_identity_id or
+      p.identity_id == ^viewer_id or
+        p.visibility in ["public", "unlisted"] or
         (p.visibility == "followers" and p.identity_id in subquery(followed_ids_subquery)) or
-        p.visibility == "group"
+        (p.visibility == "direct" and p.id in subquery(mentioned_post_ids)) or
+        (p.visibility == "list" and not is_nil(p.list_id) and
+           p.list_id in subquery(list_ids_subquery)) or
+        (p.visibility == "group" and not is_nil(p.group_id) and
+           p.group_id in subquery(group_ids_subquery))
     )
   end
 

@@ -1130,12 +1130,16 @@ defmodule Hybridsocial.Social.Posts do
   # origin. No-op for purely local posts — the bell + counter already
   # surface the reaction inside our instance.
   defp maybe_federate_reaction(%Post{} = post, identity_id, type) do
-    post = Repo.preload(post, :identity)
-    cond do
-      is_nil(post.identity) -> :ok
-      local_identity?(post.identity) -> :ok
-      true -> spawn_federate_reaction(post, identity_id, type)
-    end
+    # Even when the post itself is local we still federate the
+    # reaction — every remote instance that mirrored the post via
+    # Follow needs the Like/EmojiReact activity in order to update
+    # the cached reaction count. The activity builder pre-computes
+    # the remote audience, so a post with no remote followers and no
+    # remote mentions ends up with an empty recipient set and the
+    # Publisher noops naturally.
+    post = Repo.preload(post, [:identity, mentions: :identity])
+
+    if post.identity, do: spawn_federate_reaction(post, identity_id, type), else: :ok
   end
 
   defp spawn_federate_reaction(post, identity_id, type) do
@@ -1206,12 +1210,9 @@ defmodule Hybridsocial.Social.Posts do
   end
 
   defp maybe_federate_unreact(%Post{} = post, identity_id, type) do
-    post = Repo.preload(post, :identity)
-    cond do
-      is_nil(post.identity) -> :ok
-      local_identity?(post.identity) -> :ok
-      true -> spawn_federate_unreact(post, identity_id, type)
-    end
+    post = Repo.preload(post, [:identity, mentions: :identity])
+
+    if post.identity, do: spawn_federate_unreact(post, identity_id, type), else: :ok
   end
 
   defp spawn_federate_unreact(post, identity_id, type) do
@@ -1233,13 +1234,15 @@ defmodule Hybridsocial.Social.Posts do
           # Wrap in Undo so the remote peer drops the prior reaction.
           # Reusing the inner activity verbatim keeps the `id` matched
           # to what was originally delivered, which is what Mastodon's
-          # Undo handler keys off.
+          # Undo handler keys off. Preserve the cc so the Undo reaches
+          # every peer that received the original Like.
           undo = %{
             "@context" => "https://www.w3.org/ns/activitystreams",
             "id" => inner["id"] <> "/undo",
             "type" => "Undo",
             "actor" => inner["actor"],
             "to" => inner["to"],
+            "cc" => inner["cc"] || [],
             "object" => inner
           }
 
@@ -1393,6 +1396,7 @@ defmodule Hybridsocial.Social.Posts do
     exclude_replies = Keyword.get(opts, :exclude_replies, false)
     only_media = Keyword.get(opts, :only_media, false)
     only_direct = Keyword.get(opts, :only_direct, false)
+    viewer_id = Keyword.get(opts, :viewer_id)
 
     base =
       Post
@@ -1444,6 +1448,25 @@ defmodule Hybridsocial.Social.Posts do
 
     query = if exclude_replies, do: where(query, [p], is_nil(p.parent_id)), else: query
     query = if only_media, do: where(query, [p], p.post_type == "media"), else: query
+
+    # Apply viewer-scoped block/mute/visibility filtering so a user's
+    # profile feed respects the same audience contract as a per-post
+    # detail fetch. The Direct tab hits a recipient-scoped path
+    # already (only_direct=true above) so we skip the visibility
+    # gate there — otherwise the gate would re-restrict it to "posts
+    # whose audience includes the viewer", which is the same set
+    # /Direct already returns.
+    query =
+      query
+      |> Hybridsocial.Feeds.Visibility.apply_block_filter(viewer_id)
+      |> Hybridsocial.Feeds.Visibility.apply_mute_filter(viewer_id)
+
+    query =
+      if only_direct do
+        query
+      else
+        Hybridsocial.Feeds.Visibility.apply_post_visibility(query, viewer_id)
+      end
 
     Repo.all(query) |> Repo.preload([:identity, :quote])
   end

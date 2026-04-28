@@ -140,18 +140,22 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
     post = maybe_preload(post, :identity)
     actor_url = actor_url(identity)
     author_url = actor_ap_url(post.identity)
+    audience_cc = reaction_audience_urls(post, identity)
 
-    # A Like is a private signal to the post's author; it doesn't
-    # need (and shouldn't have) broader addressing. For a direct
-    # post, addressing a Like to `AS:Public` would leak the fact
-    # the recipient reacted to a private message. Restricting `to`
-    # to the author keeps the scope matched to the post.
+    # The Like is primarily addressed to the post's author (matches
+    # Mastodon's expectation), and `cc`'d to every remote actor that
+    # has a cached copy of the post — local-author posts that remote
+    # instances mirror via Follow, plus mentioned recipients on
+    # direct posts. Without the cc fan-out, a like on a local post
+    # would only ever live on the origin instance and the remote
+    # mirrors would be stuck at "0 reactions" forever.
     %{
       "@context" => @context,
       "id" => activity_id(identity.id, "like", post.id),
       "type" => "Like",
       "actor" => actor_url,
       "to" => [author_url],
+      "cc" => audience_cc,
       "object" => post_object_url(post)
     }
   end
@@ -165,6 +169,7 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
     post = maybe_preload(post, :identity)
     actor_url = actor_url(identity)
     author_url = actor_ap_url(post.identity)
+    audience_cc = reaction_audience_urls(post, identity)
 
     %{
       "@context" => @context,
@@ -172,10 +177,58 @@ defmodule Hybridsocial.Federation.ActivityBuilder do
       "type" => "EmojiReact",
       "actor" => actor_url,
       "to" => [author_url],
+      "cc" => audience_cc,
       "object" => post_object_url(post),
       "content" => emoji
     }
   end
+
+  # Remote AP actor URLs that should receive a reaction activity for
+  # `post`. Computes the union of the post author's remote followers
+  # (so any peer that mirrored the post via Follow learns about the
+  # reaction) and any mentioned actors (relevant for direct posts).
+  # Drops the reactor's own URL — they already have the reaction
+  # locally — and the post author's URL since it lives in `to`.
+  defp reaction_audience_urls(post, identity) do
+    import Ecto.Query
+
+    excluded = MapSet.new([actor_url(identity), actor_ap_url(post.identity)])
+
+    follower_urls =
+      from(f in Hybridsocial.Social.Follow,
+        join: i in Hybridsocial.Accounts.Identity,
+        on: i.id == f.follower_id,
+        where:
+          f.followee_id == ^post.identity_id and
+            f.status == :accepted and
+            not is_nil(i.ap_actor_url) and
+            i.ap_actor_url != "",
+        select: i.ap_actor_url
+      )
+      |> Hybridsocial.Repo.all()
+
+    mention_urls =
+      case Map.get(post, :mentions) do
+        list when is_list(list) ->
+          Enum.flat_map(list, fn
+            %{identity: %{ap_actor_url: url}} when is_binary(url) and url != "" -> [url]
+            _ -> []
+          end)
+
+        _ ->
+          []
+      end
+
+    (follower_urls ++ mention_urls)
+    |> Enum.reject(fn url -> MapSet.member?(excluded, url) or local_url?(url) end)
+    |> Enum.uniq()
+  end
+
+  # The Publisher already filters local URLs out at delivery time,
+  # but pre-filtering here keeps the activity's `cc` honest about
+  # who's actually being addressed remotely.
+  defp local_url?(url) when is_binary(url), do: String.starts_with?(url, base_url())
+  defp local_url?(_), do: false
 
   # Prefer the post's federated ap_id when present (mirror of a
   # remote post) so the receiving peer recognizes its own URL;
