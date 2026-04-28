@@ -53,7 +53,7 @@ defmodule Hybridsocial.Feeds.Visibility do
   defp check_visibility(%{visibility: "list", list_id: list_id}, viewer_id)
        when not is_nil(list_id) do
     ListMember
-    |> where([m], m.list_id == ^list_id and m.identity_id == ^viewer_id)
+    |> where([m], m.list_id == ^list_id and m.target_identity_id == ^viewer_id)
     |> Repo.exists?()
   end
 
@@ -114,7 +114,7 @@ defmodule Hybridsocial.Feeds.Visibility do
 
     list_ids_subquery =
       ListMember
-      |> where([m], m.identity_id == ^viewer_id)
+      |> where([m], m.target_identity_id == ^viewer_id)
       |> select([m], m.list_id)
 
     group_ids_subquery =

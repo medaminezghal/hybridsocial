@@ -107,6 +107,9 @@
     }
   }
 
+  // The row itself is now a real <a href>, so navigation (including
+  // ctrl/cmd-click → new tab and shift-click → new window) is handled
+  // by the browser. We only flip the unread bit here.
   async function handleNotificationClick(notification: Notification) {
     if (!notification.read) {
       try {
@@ -114,13 +117,6 @@
         markRead(notification.id);
         items = items.map((n) => (n.id === notification.id ? { ...n, read: true } : n));
       } catch { /* ignore */ }
-    }
-
-    // Navigate based on type
-    if (notification.post) {
-      window.location.href = `/post/${notification.post.id}`;
-    } else if (notification.type === 'follow' || notification.type === 'follow_request') {
-      window.location.href = `/${notification.account.handle}`;
     }
   }
 
@@ -218,7 +214,29 @@
   .notifications-list {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    background: var(--color-surface-container-lowest, var(--color-surface));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  /* Hairline separator between notification rows so a long list reads
+     as a structured timeline instead of a wall of similar cards.
+     `:not(:last-child)` keeps the bottom edge clean against the
+     wrapper's own border. */
+  .notifications-list :global(.notification-item:not(:last-child)) {
+    border-block-end: 1px solid var(--color-border);
+    border-radius: 0;
+  }
+
+  .notifications-list :global(.notification-item:first-child) {
+    border-start-start-radius: var(--radius-lg);
+    border-start-end-radius: var(--radius-lg);
+  }
+
+  .notifications-list :global(.notification-item:last-child) {
+    border-end-start-radius: var(--radius-lg);
+    border-end-end-radius: var(--radius-lg);
   }
 
   .notifications-empty {

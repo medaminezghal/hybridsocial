@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Notification } from '$lib/api/types.js';
-  import { goto } from '$app/navigation';
   import { relativeTime } from '$lib/utils/time.js';
   import Avatar from '$lib/components/ui/Avatar.svelte';
 
@@ -11,6 +10,37 @@
     notification: Notification;
     onclick?: (notification: Notification) => void;
   } = $props();
+
+  // Resolve the destination URL up front so the wrapping element can
+  // be a real <a href>. That preserves the browser's native handling
+  // of ctrl/cmd-click (new tab) and shift-click (new window), which a
+  // div+goto() can't replicate. SvelteKit's link interceptor still
+  // handles the plain-click case as SPA navigation.
+  let targetHref = $derived.by(() => {
+    switch (notification.type) {
+      case 'follow':
+      case 'follow_request':
+        return `/@${notification.account.handle}`;
+      case 'reaction':
+      case 'boost':
+      case 'favourite':
+      case 'mention':
+      case 'reply':
+      case 'quote':
+      case 'update':
+      case 'poll':
+      case 'poll_ended':
+        if (notification.post) return `/post/${notification.post.id}`;
+        if (notification.target_id && notification.target_type === 'post') {
+          return `/post/${notification.target_id}`;
+        }
+        return null;
+      case 'group_invite':
+        return notification.post ? `/groups/${notification.post.id}` : null;
+      default:
+        return null;
+    }
+  });
 
   let timeAgo = $derived(relativeTime(notification.created_at));
   let actorName = $derived(notification.account.display_name || notification.account.handle);
@@ -96,55 +126,25 @@
     }
   });
 
+  // Mark-read fires on every click — modifier-clicks open elsewhere
+  // but the user has still "seen" the notification, so we want the
+  // unread highlight to clear regardless. Don't preventDefault: that
+  // would break ctrl-click / shift-click / middle-click. SvelteKit's
+  // <a> interceptor handles plain SPA nav on its own.
   function handleClick() {
     onclick?.(notification);
-
-    // Navigate based on notification type
-    switch (notification.type) {
-      case 'follow':
-      case 'follow_request':
-        goto(`/@${notification.account.handle}`);
-        break;
-      case 'reaction':
-      case 'boost':
-      case 'favourite':
-      case 'mention':
-      case 'reply':
-      case 'quote':
-      case 'update':
-      case 'poll':
-      case 'poll_ended':
-        if (notification.post) {
-          goto(`/post/${notification.post.id}`);
-        } else if (notification.target_id && notification.target_type === 'post') {
-          goto(`/post/${notification.target_id}`);
-        }
-        break;
-      case 'group_invite':
-        if (notification.post) {
-          goto(`/groups/${notification.post.id}`);
-        }
-        break;
-    }
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleClick();
-    }
+  // The inner author link's own click bubbles up here. Without this
+  // guard, hitting "@handle" inside the row would trigger the parent
+  // mark-read AND navigate to the post — instead of just navigating
+  // to the profile.
+  function stopBubble(e: MouseEvent | KeyboardEvent) {
+    e.stopPropagation();
   }
 </script>
 
-<div
-  class="notification-item"
-  class:unread={!notification.read}
-  role="button"
-  tabindex="0"
-  onclick={handleClick}
-  onkeydown={handleKeydown}
-  aria-label="{actorName} {description}"
->
+{#snippet body()}
   <div class="notification-icon" style="color: {iconColor}">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d={iconPath} />
@@ -158,7 +158,7 @@
 
     <div class="notification-body">
       <p class="notification-text">
-        <a href="/{notification.account.handle}" class="notification-actor-name">{actorName}</a>
+        <a href="/@{notification.account.handle}" class="notification-actor-name" onclick={stopBubble}>{actorName}</a>
         {description}
       </p>
 
@@ -191,7 +191,27 @@
       </time>
     </div>
   </div>
-</div>
+{/snippet}
+
+{#if targetHref}
+  <a
+    class="notification-item"
+    class:unread={!notification.read}
+    href={targetHref}
+    onclick={handleClick}
+    aria-label="{actorName} {description}"
+  >
+    {@render body()}
+  </a>
+{:else}
+  <div
+    class="notification-item notification-item-static"
+    class:unread={!notification.read}
+    aria-label="{actorName} {description}"
+  >
+    {@render body()}
+  </div>
+{/if}
 
 <style>
   .notification-item {
@@ -201,6 +221,19 @@
     border-radius: var(--radius-lg);
     cursor: pointer;
     transition: background var(--transition-fast);
+    /* Anchor reset — the row is wrapped in <a> so ctrl/shift-click
+       open in new tab/window, but we don't want the default link
+       blue / underline on the entire card. */
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .notification-item:hover {
+    text-decoration: none;
+  }
+
+  .notification-item-static {
+    cursor: default;
   }
 
   .notification-item:hover {

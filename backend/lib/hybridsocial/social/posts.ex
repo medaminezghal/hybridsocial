@@ -953,7 +953,7 @@ defmodule Hybridsocial.Social.Posts do
   defp list_member?(list_id, viewer_id) do
     Repo.exists?(
       from lm in Hybridsocial.Social.ListMember,
-        where: lm.list_id == ^list_id and lm.identity_id == ^viewer_id
+        where: lm.list_id == ^list_id and lm.target_identity_id == ^viewer_id
     )
   end
 
