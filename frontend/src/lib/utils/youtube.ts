@@ -76,8 +76,21 @@ export function youtubeThumbnail(id: string): string {
 }
 
 export function youtubeEmbedUrl(id: string, start?: number): string {
-  const params = new URLSearchParams({ autoplay: '1', rel: '0', modestbranding: '1' });
+  // `enablejsapi=1` lets us postMessage commands (pauseVideo) to the
+  // embed when it scrolls out of view; without it the iframe ignores
+  // every command. `origin` is required by YouTube's API to bind the
+  // command channel to our window — only set in browser contexts so
+  // SSR doesn't reach for `location`.
+  const params = new URLSearchParams({
+    autoplay: '1',
+    rel: '0',
+    modestbranding: '1',
+    enablejsapi: '1',
+  });
   if (start && start > 0) params.set('start', String(start));
+  if (typeof window !== 'undefined' && window.location) {
+    params.set('origin', window.location.origin);
+  }
   return `https://www.youtube-nocookie.com/embed/${id}?${params.toString()}`;
 }
 

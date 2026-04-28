@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { youtubeEmbedUrl, youtubeThumbnail, youtubeWatchUrl, type YouTubeRef } from '$lib/utils/youtube.js';
 
   let {
@@ -11,6 +12,7 @@
 
   let playing = $state(false);
   let thumbBroken = $state(false);
+  let iframeEl: HTMLIFrameElement | undefined = $state();
 
   // Stop the click from bubbling to the post-card row navigation. The
   // user wanted "play here", not "open the post detail".
@@ -23,11 +25,67 @@
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Enter' || e.key === ' ') play(e);
   }
+
+  // Pause the YouTube iframe when it scrolls out of the viewport so a
+  // feed full of clicked-into videos doesn't keep audio bleeding
+  // through after the user has moved on. Resume is intentional: we
+  // don't auto-play on scroll-back, the user has to click again
+  // (matches LazyMedia's <video> behaviour).
+  //
+  // Skip the pause while the iframe is in fullscreen / picture-in-
+  // picture, since intersection in those modes doesn't reflect viewer
+  // attention.
+  function pauseIframe() {
+    const win = iframeEl?.contentWindow;
+    if (!win) return;
+    try {
+      win.postMessage(
+        JSON.stringify({ event: 'command', func: 'pauseVideo', args: [] }),
+        '*',
+      );
+    } catch {
+      // Cross-origin postMessage rarely throws, but never let a
+      // pause attempt break the page.
+    }
+  }
+
+  let observer: IntersectionObserver | null = null;
+
+  $effect(() => {
+    if (!playing || !iframeEl) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+
+    observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) continue;
+          if (document.fullscreenElement === iframeEl) continue;
+          if (
+            (document as Document & { pictureInPictureElement?: Element })
+              .pictureInPictureElement === iframeEl
+          ) {
+            continue;
+          }
+          pauseIframe();
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(iframeEl);
+
+    return () => {
+      observer?.disconnect();
+      observer = null;
+    };
+  });
+
+  onDestroy(() => observer?.disconnect());
 </script>
 
 <div class="yt-embed" onclick={(e) => e.stopPropagation()} role="presentation">
   {#if playing}
     <iframe
+      bind:this={iframeEl}
       class="yt-frame"
       src={youtubeEmbedUrl(ref.id, ref.start)}
       title={title || 'YouTube video'}
