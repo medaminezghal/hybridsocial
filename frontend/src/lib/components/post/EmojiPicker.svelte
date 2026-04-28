@@ -40,6 +40,21 @@
     return map;
   });
 
+  // One representative glyph per native group — Twemoji-style, so the
+  // tab strip fits in the popover without wrapping or hiding the last
+  // few categories. Full label still surfaces via the `title` tooltip.
+  const TAB_GLYPHS: Record<string, string> = {
+    smileys: '\u{1F600}',
+    people: '\u{1F44B}',
+    animals: '\u{1F436}',
+    food: '\u{1F354}',
+    activities: '\u{26BD}',
+    travel: '\u{1F697}',
+    objects: '\u{1F4A1}',
+    symbols: '\u{2764}\u{FE0F}',
+    flags: '\u{1F3F3}\u{FE0F}',
+  };
+
   // Build a flat searchable list once so the filter can scan both
   // native and custom emojis at the same time without rebuilding
   // structures on every keystroke.
@@ -112,14 +127,15 @@
       {#each EMOJI_GROUPS as group (group.id)}
         <button
           type="button"
-          class="emoji-tab"
+          class="emoji-tab emoji-tab-icon"
           class:emoji-tab-active={activeTab === group.id}
           onclick={() => { activeTab = group.id; }}
           role="tab"
           aria-selected={activeTab === group.id}
+          aria-label={group.label}
           title={group.label}
         >
-          {group.label}
+          {TAB_GLYPHS[group.id] ?? group.label.charAt(0)}
         </button>
       {/each}
       {#each customCategories as cat (cat)}
@@ -297,6 +313,17 @@
   .emoji-tab-active {
     background: var(--color-primary-soft);
     color: var(--color-primary);
+  }
+
+  /* Native-category tabs are rendered as a single representative
+     glyph so all 9 fit horizontally in a 340px popover without the
+     last few categories sliding off-edge. Custom-category tabs keep
+     their text label (those are user-defined names, not stable
+     glyphs we can pick for them). */
+  .emoji-tab-icon {
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 8px;
   }
 
   .emoji-grid-container {

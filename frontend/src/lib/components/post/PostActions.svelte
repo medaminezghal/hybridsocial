@@ -32,6 +32,7 @@
 
   import { onMount } from 'svelte';
   import { premiumCatalog, ensurePremiumCatalog, type PremiumReactionGlyph } from '$lib/stores/reaction-catalog.js';
+  import { openMenuId } from '$lib/stores/open-menu.js';
 
   // Premium reactions are admin-curated bare shortcodes like "fire".
   // Without resolving them through the shared catalog they used to
@@ -272,18 +273,79 @@
 
   let menuOpenUpward = $state(false);
 
+  // A unique tag per PostActions instance so the global `openMenuId`
+  // store can identify which menu is currently expanded across the
+  // whole feed. Without this, opening a second post's ⋯ menu left
+  // the first one stacked on screen — see the screenshot in PR review.
+  const menuTag = `post-actions:${post.id}:${Math.random().toString(36).slice(2, 8)}`;
+
+  // Close the menu the moment another instance becomes the active
+  // one, or when something clears the store (window click outside,
+  // Escape press handled in the listener below).
+  $effect(() => {
+    const active = $openMenuId;
+    if (showMoreMenu && active !== menuTag) {
+      showMoreMenu = false;
+    }
+  });
+
+  // Inverse: when we close (by any path — menu item click, toggle off,
+  // etc.) and we still own the global slot, release it so a window
+  // click later doesn't fire a no-op against a stale tag, and so
+  // other instances don't see us as "still active".
+  $effect(() => {
+    if (showMoreMenu) return;
+    if (get(openMenuId) === menuTag) openMenuId.set(null);
+  });
+
+  // One window-level click + escape listener per instance is fine —
+  // they cheaply dismiss the global store and every other instance
+  // closes via the effect above. Only mount the listeners while the
+  // menu is open so an idle feed doesn't have N listeners running.
+  $effect(() => {
+    if (!showMoreMenu) return;
+    function onDocClick(e: MouseEvent) {
+      const t = e.target as Node | null;
+      // Click inside the menu or its trigger? Leave it open.
+      if (t && menuRootEl && menuRootEl.contains(t)) return;
+      openMenuId.set(null);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') openMenuId.set(null);
+    }
+    // `true` (capture) so we win against PostCard's own click handler,
+    // which would otherwise consume the event before we see it.
+    document.addEventListener('click', onDocClick, true);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('click', onDocClick, true);
+      document.removeEventListener('keydown', onKey);
+    };
+  });
+
+  let menuRootEl: HTMLDivElement | undefined = $state();
+
   function toggleMoreMenu(e: MouseEvent) {
     e.stopPropagation();
-    showMoreMenu = !showMoreMenu;
     showReactionPicker = false;
 
     if (showMoreMenu) {
-      // Check if the button is near the bottom of the viewport
-      const btn = e.currentTarget as HTMLElement;
-      const rect = btn.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      menuOpenUpward = spaceBelow < 280;
+      // Already ours — toggle off.
+      openMenuId.set(null);
+      showMoreMenu = false;
+      return;
     }
+
+    // Check if the button is near the bottom of the viewport.
+    const btn = e.currentTarget as HTMLElement;
+    const rect = btn.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    menuOpenUpward = spaceBelow < 280;
+
+    // Claim the global slot — every other PostActions instance sees
+    // the change via $openMenuId and closes its own menu.
+    openMenuId.set(menuTag);
+    showMoreMenu = true;
   }
 
   async function handleShare(e: MouseEvent) {
@@ -669,7 +731,7 @@
     {/if}
 
     <!-- Options (3 dots) -->
-    <div class="action-more-wrapper">
+    <div class="action-more-wrapper" bind:this={menuRootEl}>
     <button
       type="button"
       class="action-btn action-options"

@@ -78,7 +78,10 @@ defmodule Hybridsocial.Notifications do
     |> filter_max_id(max_id)
     |> filter_types(types)
     |> filter_exclude_types(exclude_types)
-    |> order_by([n], desc: n.inserted_at)
+    # `id DESC` is the explicit tie-breaker for notifications inserted
+    # in the same instant; without it the row-tuple cursor below
+    # couldn't deterministically pick the next-page boundary.
+    |> order_by([n], desc: n.inserted_at, desc: n.id)
     |> limit(^limit)
     |> preload(:actor)
     |> Repo.all()
@@ -272,9 +275,33 @@ defmodule Hybridsocial.Notifications do
 
   defp filter_max_id(query, nil), do: query
 
-  defp filter_max_id(query, max_id) do
-    where(query, [n], n.id < ^max_id)
+  # Notifications order by inserted_at DESC, so a `n.id < max_id` UUID
+  # compare against that ordering returns an arbitrary slice and the
+  # list freezes after the first page (the symptom: scroll loads page
+  # one, then never advances). Look up the boundary row's inserted_at
+  # first, then row-tuple compare on the same expression as the ORDER
+  # BY. Falls through to no-cursor when the cursor doesn't resolve
+  # (stale client, deleted notification) — never emit an empty page
+  # just because the cursor is unrecognised.
+  defp filter_max_id(query, max_id) when is_binary(max_id) do
+    case Repo.one(
+           from n in Notification,
+             where: n.id == ^max_id,
+             select: {n.inserted_at, n.id}
+         ) do
+      nil ->
+        query
+
+      {ia, id} ->
+        where(
+          query,
+          [n],
+          fragment("(?, ?) < (?, ?)", n.inserted_at, n.id, ^ia, type(^id, Ecto.UUID))
+        )
+    end
   end
+
+  defp filter_max_id(query, _), do: query
 
   defp filter_types(query, nil), do: query
   defp filter_types(query, []), do: query
