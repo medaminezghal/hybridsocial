@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { relativeTime, fullDateTime } from '$lib/utils/time.js';
   import AccountTypeIndicator from '$lib/components/ui/AccountTypeIndicator.svelte';
+  import LazyMedia from '$lib/components/post/LazyMedia.svelte';
 
   let {
     post,
@@ -14,6 +15,18 @@
   let handle = $derived(`@${post.account.handle}`);
   let timeAgo = $derived(relativeTime(post.created_at));
   let fullDate = $derived(fullDateTime(post.created_at));
+  let media = $derived(post.media_attachments || []);
+  let mediaCount = $derived(media.length);
+  // Match PostCard's grid layout (single / two / three / four).
+  let mediaGridClass = $derived(
+    mediaCount === 1
+      ? 'quote-media-grid-1'
+      : mediaCount === 2
+        ? 'quote-media-grid-2'
+        : mediaCount === 3
+          ? 'quote-media-grid-3'
+          : 'quote-media-grid-4'
+  );
 
   function navigateToQuote(e: MouseEvent) {
     e.stopPropagation();
@@ -53,6 +66,20 @@
   {:else if post.content}
     <div class="quote-content">
       <p>{post.content}</p>
+    </div>
+  {/if}
+
+  {#if mediaCount > 0}
+    <div class="quote-media-grid {mediaGridClass}">
+      {#each media as m (m.id)}
+        <div
+          class="quote-media-item"
+          class:quote-media-video={m.type === 'video'}
+          class:quote-media-audio={m.type === 'audio'}
+        >
+          <LazyMedia media={m} isRemote={!!m.remote_url} author={post.account} />
+        </div>
+      {/each}
     </div>
   {/if}
 </div>
@@ -136,5 +163,60 @@
 
   .quote-content :global(a) {
     color: var(--color-primary);
+  }
+
+  .quote-media-grid {
+    display: grid;
+    gap: 2px;
+    margin-block-start: var(--space-2);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    max-height: 320px;
+  }
+
+  .quote-media-grid-1 {
+    grid-template-columns: 1fr;
+  }
+  .quote-media-grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .quote-media-grid-3 {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+  .quote-media-grid-3 .quote-media-item:first-child {
+    grid-row: span 2;
+  }
+  .quote-media-grid-4 {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .quote-media-item {
+    overflow: hidden;
+    background: var(--color-surface);
+    aspect-ratio: 16 / 9;
+    max-height: 320px;
+  }
+
+  .quote-media-grid-1 .quote-media-item {
+    aspect-ratio: auto;
+  }
+
+  .quote-media-video {
+    background: #000;
+  }
+
+  .quote-media-item :global(img),
+  .quote-media-item :global(video) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .quote-media-grid-1 .quote-media-item :global(img),
+  .quote-media-grid-1 .quote-media-item :global(video) {
+    object-fit: contain;
+    max-height: 320px;
   }
 </style>
