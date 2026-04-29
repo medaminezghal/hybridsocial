@@ -208,6 +208,12 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
     # Batch load media attachments (one query for the whole list)
     media_by_post = batch_media_attachments(post_ids)
 
+    # Batch resolve target_media summaries (per-image replies). One
+    # query for all unique parent_ids referenced by posts in the
+    # batch, then index-lookup per post. Skipped entirely when no
+    # post in the batch is a per-image reply.
+    target_media_summaries = batch_target_media_summaries(posts)
+
     Enum.map(posts, fn post ->
       badges =
         Hybridsocial.Badges.badges_for_post(
@@ -267,6 +273,9 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
         account: account,
         parent_id: post.parent_id,
         root_id: post.root_id,
+        target_media_id: Map.get(post, :target_media_id),
+        target_media_index: get_in(target_media_summaries, [post.id, :index]),
+        target_media_preview_url: get_in(target_media_summaries, [post.id, :preview_url]),
         in_reply_to_account_id: in_reply_to_account_id,
         quote: quote_post,
         card: card,
@@ -631,6 +640,60 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
         preview_url = thumbnail_url(media) || url
 
         %{index: idx + 1, preview_url: preview_url}
+    end
+  end
+
+  # Build a `%{post_id => %{index, preview_url}}` map for every post
+  # in the batch that's pinned to a specific media on its parent.
+  # One query loads media for all referenced parents; per-post we
+  # find the media's position + preview URL in the gallery.
+  defp batch_target_media_summaries(posts) do
+    pairs =
+      posts
+      |> Enum.flat_map(fn p ->
+        case {Map.get(p, :target_media_id), Map.get(p, :parent_id)} do
+          {media_id, parent_id} when is_binary(media_id) and is_binary(parent_id) ->
+            [{p.id, parent_id, media_id}]
+
+          _ ->
+            []
+        end
+      end)
+
+    if pairs == [] do
+      %{}
+    else
+      parent_ids = pairs |> Enum.map(fn {_pid, parent_id, _mid} -> parent_id end) |> Enum.uniq()
+
+      medias_by_parent =
+        MediaFile
+        |> where([m], m.post_id in ^parent_ids and is_nil(m.deleted_at))
+        |> order_by([m], asc: m.inserted_at)
+        |> Repo.all()
+        |> Enum.group_by(& &1.post_id)
+
+      Enum.reduce(pairs, %{}, fn {pid, parent_id, media_id}, acc ->
+        medias = Map.get(medias_by_parent, parent_id, [])
+
+        case Enum.find_index(medias, &(&1.id == media_id)) do
+          nil ->
+            acc
+
+          idx ->
+            media = Enum.at(medias, idx)
+
+            url =
+              if is_binary(media.remote_url) do
+                Hybridsocial.Media.MediaProxy.url(media.remote_url)
+              else
+                Hybridsocial.Media.media_url(media)
+              end
+
+            preview_url = thumbnail_url(media) || url
+
+            Map.put(acc, pid, %{index: idx + 1, preview_url: preview_url})
+        end
+      end)
     end
   end
 

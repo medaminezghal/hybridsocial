@@ -507,7 +507,13 @@
               <img src={instanceFavicon} alt={domain} class="instance-favicon" loading="lazy" />
             {/if}
             <span class="post-dot" aria-hidden="true">&middot;</span>
-            <time class="post-time" datetime={post.created_at} title={fullDate}>{timeAgo}</time>
+            <a
+              class="post-time-link"
+              href="/post/{post.id}"
+              onclick={(e) => e.stopPropagation()}
+            >
+              <time class="post-time" datetime={post.created_at} title={fullDate}>{timeAgo}</time>
+            </a>
             {#if post.edited_at}
               <span class="post-edited" title="Edited {fullDateTime(post.edited_at)}">(edited)</span>
             {/if}
@@ -1176,13 +1182,18 @@
     font-size: 0.8125rem;
   }
 
+  .post-time-link {
+    color: inherit;
+    text-decoration: none;
+  }
+
   .post-time {
     white-space: nowrap;
     color: var(--color-text-secondary);
     font-size: 0.8125rem;
   }
 
-  .post-time:hover {
+  .post-time-link:hover .post-time {
     text-decoration: underline;
   }
 

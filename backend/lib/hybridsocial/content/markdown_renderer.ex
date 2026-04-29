@@ -51,6 +51,7 @@ defmodule Hybridsocial.Content.MarkdownRenderer do
     {with_placeholders, hashtags} =
       markdown
       |> String.trim()
+      |> suppress_indented_code()
       |> stash_hashtags()
 
     with_placeholders
@@ -68,6 +69,7 @@ defmodule Hybridsocial.Content.MarkdownRenderer do
     {with_placeholders, hashtags} =
       markdown
       |> String.trim()
+      |> suppress_indented_code()
       |> stash_hashtags()
 
     with_placeholders
@@ -210,6 +212,54 @@ defmodule Hybridsocial.Content.MarkdownRenderer do
   # --------------------------------------------------------------------------
   # Helpers
   # --------------------------------------------------------------------------
+
+  # CommonMark turns any line indented by 4+ spaces (or a tab) into an
+  # indented code block — `<pre><code>…</code></pre>`, monospace font,
+  # no inline formatting. On a social feed that's almost never what the
+  # author wanted: a user pasting Arabic / multilingual text from
+  # another editor often picks up stray leading whitespace and the
+  # whole paragraph silently switches to a monospace code block. Users
+  # who actually want code blocks reach for fenced ``` syntax.
+  #
+  # We walk lines, track whether we're inside a fenced code block
+  # (toggled by ``` or ~~~ at the start of a line, after up to 3
+  # spaces of indent), and outside of fences clamp leading whitespace
+  # to 3 spaces. List markers typically sit within 0–3 spaces, so list
+  # continuations keep their visual indentation; only the >=4-space
+  # rule that triggers indented code blocks is suppressed.
+  defp suppress_indented_code(text) do
+    {out, _in_fence} =
+      text
+      |> String.split("\n")
+      |> Enum.map_reduce(false, fn line, in_fence ->
+        cond do
+          fence_line?(line) ->
+            {line, not in_fence}
+
+          in_fence ->
+            {line, in_fence}
+
+          true ->
+            {clamp_leading_spaces(line, 3), in_fence}
+        end
+      end)
+
+    Enum.join(out, "\n")
+  end
+
+  defp fence_line?(line) do
+    Regex.match?(~r/^ {0,3}(```|~~~)/, line)
+  end
+
+  defp clamp_leading_spaces(line, max) do
+    case Regex.run(~r/^( +)(.*)$/s, line) do
+      [_, leading, rest] when byte_size(leading) > max ->
+        String.duplicate(" ", max) <> rest
+
+      _ ->
+        line
+    end
+  end
 
   defp normalize_level("none"), do: :none
   defp normalize_level("basic"), do: :basic

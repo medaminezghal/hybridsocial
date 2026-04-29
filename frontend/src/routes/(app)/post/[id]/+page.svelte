@@ -17,21 +17,39 @@
 
   let postId = $derived(page.params.id!);
 
-  async function loadThread() {
+  async function loadThread(id: string) {
+    // Reset state on route switch so stale content from the previous
+    // thread doesn't flash before the new fetch resolves.
+    loading = true;
+    error = null;
+    post = null;
+    ancestors = [];
+    descendants = [];
+
     try {
-      const [p, context] = await Promise.all([getPost(postId), getPostContext(postId)]);
+      const [p, context] = await Promise.all([getPost(id), getPostContext(id)]);
+      // Drop the result if the user has already navigated again — a
+      // slow first request shouldn't overwrite a faster second one.
+      if (id !== postId) return;
       post = p;
       ancestors = context.ancestors || [];
       descendants = context.descendants || [];
     } catch (e) {
+      if (id !== postId) return;
       error = e instanceof Error ? e.message : 'Failed to load post';
     } finally {
-      loading = false;
+      if (id === postId) loading = false;
     }
   }
 
+  // Reload whenever the route id changes (in-app navigation between
+  // posts in the same thread). onMount alone fires once and leaves
+  // the page stuck on the original post when the URL updates.
+  $effect(() => {
+    loadThread(postId);
+  });
+
   onMount(() => {
-    loadThread();
 
     // Listen for new replies (optimistic)
     function handleNewPost(e: Event) {
