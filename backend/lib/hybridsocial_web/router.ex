@@ -282,6 +282,7 @@ defmodule HybridsocialWeb.Router do
     pipe_through [:api, :authenticated]
 
     get "/:id", PollController, :show
+    get "/:id/voters", PollController, :voters
     post "/:id/votes", PollController, :vote
   end
 

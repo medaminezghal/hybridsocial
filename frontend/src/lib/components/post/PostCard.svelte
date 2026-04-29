@@ -66,6 +66,7 @@
   import AccountTypeIndicator from '$lib/components/ui/AccountTypeIndicator.svelte';
   import LazyMedia from '$lib/components/post/LazyMedia.svelte';
   import YouTubeEmbed from '$lib/components/post/YouTubeEmbed.svelte';
+  import Modal from '$lib/components/ui/Modal.svelte';
   import { parseYouTubeUrl, findYouTubeInContent } from '$lib/utils/youtube.js';
 
   let {
@@ -407,6 +408,38 @@
     }
   }
 
+  // Poll voters modal — lists who voted but not what they chose, per
+  // privacy-of-vote rule. Loaded on demand the first time the modal
+  // opens and cached for the lifetime of this card.
+  type PollVoter = {
+    id: string;
+    handle: string;
+    acct: string;
+    display_name: string | null;
+    avatar_url: string | null;
+    url: string | null;
+  };
+  let votersOpen = $state(false);
+  let votersLoading = $state(false);
+  let voters = $state<PollVoter[] | null>(null);
+
+  async function openVoters(e: MouseEvent) {
+    e.stopPropagation();
+    votersOpen = true;
+    if (voters !== null || !post.poll) return;
+    votersLoading = true;
+    try {
+      const res = await api.get<{ voters: PollVoter[]; total: number }>(
+        `/api/v1/polls/${post.poll.id}/voters`,
+      );
+      voters = res.voters || [];
+    } catch {
+      voters = [];
+    } finally {
+      votersLoading = false;
+    }
+  }
+
   async function submitPollVote() {
     if (!post.poll || selectedPollOptions.length === 0 || pollVoting) return;
     pollVoting = true;
@@ -699,7 +732,18 @@
               {/if}
 
               <div class="poll-info">
-                {pollVotersCount} {pollVotersCount === 1 ? 'voter' : 'voters'}
+                {#if pollVotersCount > 0}
+                  <button
+                    type="button"
+                    class="poll-voters-link"
+                    onclick={openVoters}
+                    aria-label="View voters"
+                  >
+                    {pollVotersCount} {pollVotersCount === 1 ? 'voter' : 'voters'}
+                  </button>
+                {:else}
+                  {pollVotersCount} {pollVotersCount === 1 ? 'voter' : 'voters'}
+                {/if}
                 &middot; {pollVotesCount} {pollVotesCount === 1 ? 'vote' : 'votes'}
                 {#if post.poll.expires_at && !pollExpired}
                   &middot; ends {relativeTime(post.poll.expires_at)}
@@ -708,6 +752,37 @@
                 {/if}
               </div>
             </div>
+          {/if}
+
+          {#if votersOpen}
+            <Modal bind:open={votersOpen} title="Voters">
+              {#if votersLoading}
+                <div class="voters-loading">Loading…</div>
+              {:else if !voters || voters.length === 0}
+                <div class="voters-empty">No voters yet.</div>
+              {:else}
+                <ul class="voters-list">
+                  {#each voters as v (v.id)}
+                    <li class="voter-row">
+                      <a
+                        class="voter-link"
+                        href={`/@${v.acct || v.handle}`}
+                        onclick={(e) => { e.stopPropagation(); votersOpen = false; }}
+                      >
+                        <img
+                          class="voter-avatar"
+                          src={v.avatar_url || '/images/default-avatar.svg'}
+                          alt=""
+                          loading="lazy"
+                        />
+                        <span class="voter-name">{v.display_name || v.handle}</span>
+                        <span class="voter-handle">@{v.acct || v.handle}</span>
+                      </a>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            </Modal>
           {/if}
 
           {#if post.quote && !compact}
@@ -2224,6 +2299,72 @@
   .poll-info {
     font-size: var(--text-xs);
     color: var(--color-text-tertiary);
+  }
+
+  .poll-voters-link {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--color-text-tertiary);
+    font: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .poll-voters-link:hover {
+    color: var(--color-primary);
+  }
+
+  .voters-loading,
+  .voters-empty {
+    padding: 16px;
+    color: var(--color-text-secondary);
+    text-align: center;
+  }
+
+  .voters-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .voter-row {
+    margin: 0;
+  }
+
+  .voter-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    color: var(--color-text);
+    text-decoration: none;
+    border-radius: 8px;
+  }
+
+  .voter-link:hover {
+    background: var(--color-surface);
+  }
+
+  .voter-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .voter-name {
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .voter-handle {
+    color: var(--color-text-tertiary);
+    font-size: 0.875rem;
   }
 
   .nsfw-content {

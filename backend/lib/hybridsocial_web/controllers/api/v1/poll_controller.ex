@@ -27,6 +27,51 @@ defmodule HybridsocialWeb.Api.V1.PollController do
     end
   end
 
+  # GET /api/v1/polls/:id/voters
+  #
+  # Returns the distinct identities who have cast at least one vote on
+  # this poll. Per the user-facing requirement, this exposes *who*
+  # voted but not *what* they voted — the option_id is intentionally
+  # not selected. Multi-choice polls collapse multiple PollVote rows
+  # for the same identity to a single voter entry.
+  def voters(conn, %{"id" => poll_id}) do
+    case Polls.get_poll_by_id(poll_id) do
+      nil ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "poll.not_found"})
+
+      _poll ->
+        voters =
+          from(v in Hybridsocial.Social.PollVote,
+            where: v.poll_id == ^poll_id,
+            join: i in Hybridsocial.Accounts.Identity,
+            on: i.id == v.identity_id,
+            distinct: i.id,
+            order_by: [asc: v.inserted_at],
+            select: i
+          )
+          |> Repo.all()
+
+        conn
+        |> put_status(:ok)
+        |> json(%{
+          voters:
+            Enum.map(voters, fn i ->
+              %{
+                id: i.id,
+                handle: i.handle,
+                acct: HybridsocialWeb.Helpers.Account.build_acct(i),
+                display_name: i.display_name,
+                avatar_url: i.avatar_url,
+                url: Map.get(i, :url)
+              }
+            end),
+          total: length(voters)
+        })
+    end
+  end
+
   # POST /api/v1/polls/:id/votes
   def vote(conn, %{"id" => poll_id} = params) do
     identity = conn.assigns.current_identity
