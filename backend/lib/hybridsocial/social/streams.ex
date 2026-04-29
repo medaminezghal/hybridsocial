@@ -110,7 +110,7 @@ defmodule Hybridsocial.Social.Streams do
       |> where(
         [p],
         fragment(
-          "EXISTS (SELECT 1 FROM media m WHERE m.post_id = ? AND m.deleted_at IS NULL AND m.content_type LIKE 'video/%' AND m.duration >= ?)",
+          "EXISTS (SELECT 1 FROM media m WHERE m.post_id = ? AND m.deleted_at IS NULL AND m.content_type LIKE 'video/%' AND (m.duration IS NULL OR m.duration >= ?))",
           p.id,
           ^min_duration
         )
