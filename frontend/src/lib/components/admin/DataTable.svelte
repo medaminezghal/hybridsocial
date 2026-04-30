@@ -147,10 +147,10 @@
 
   .data-table th {
     text-align: start;
-    /* Bumped from var(--space-4) — the previous padding had cell
-       content brushing the wrapper border, especially on the action
-       buttons in the rightmost column. */
-    padding: var(--space-3) var(--space-5);
+    /* Bumped horizontal padding to space-6 — space-5 still left the
+       leftmost avatar visually touching the rounded wrapper border on
+       the user-management table. */
+    padding: var(--space-3) var(--space-6);
     background: var(--color-surface);
     color: var(--color-text-secondary);
     font-weight: 600;
@@ -162,7 +162,7 @@
   }
 
   .data-table td {
-    padding: var(--space-4) var(--space-5);
+    padding: var(--space-4) var(--space-6);
     border-block-end: 1px solid var(--color-border);
     color: var(--color-text);
     vertical-align: middle;
