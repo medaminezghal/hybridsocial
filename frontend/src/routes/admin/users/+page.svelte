@@ -729,6 +729,8 @@
                 <span class="material-symbols-outlined" style="font-size: 12px">public</span>
                 {row['domain']}
               </span>
+            {:else if isSubaccount(row)}
+              <span class="user-local-badge user-subaccount-badge">Sub-Account</span>
             {:else}
               <span class="user-local-badge">Local</span>
             {/if}
@@ -1575,6 +1577,14 @@
     border-radius: 4px;
     width: fit-content;
     margin-block-start: 2px;
+  }
+
+  /* Sub-accounts (bots / groups / pages owned by a parent user)
+     deserve their own pill so the row isn't visually conflated with
+     a top-level local account. */
+  .user-subaccount-badge {
+    color: var(--color-primary);
+    background: var(--color-primary-soft, rgba(20, 184, 166, 0.1));
   }
 
   .email-cell {
