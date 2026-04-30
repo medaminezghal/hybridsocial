@@ -19,6 +19,7 @@
   let account = $state<Identity | null>(null);
   let relationship: Relationship | null = $state(null);
   let posts: Post[] = $state([]);
+  let pinnedPosts: Post[] = $state([]);
   let loading = $state(true);
   let feedLoading = $state(false);
   let hasMore = $state(true);
@@ -130,6 +131,7 @@
     if (!account) return;
     if (reset) {
       posts = [];
+      pinnedPosts = [];
       cursor = null;
       hasMore = true;
     }
@@ -156,8 +158,22 @@
       if (activeTab === 'direct') params.only_direct = true;
       if (cursor) params.cursor = cursor;
 
-      const result = await getAccountStatuses(account.id, params);
+      // Pinned posts are only meaningful on the main "Posts" tab.
+      // Fetch them in parallel with the first page so they show at
+      // the top without an extra round-trip on every paginate.
+      const pinnedPromise =
+        reset && activeTab === 'posts'
+          ? getAccountStatuses(account.id, { pinned: true }).catch(() => [] as Post[])
+          : Promise.resolve(null as Post[] | null);
+
+      const [result, pinnedResult] = await Promise.all([
+        getAccountStatuses(account.id, params),
+        pinnedPromise,
+      ]);
       const items = Array.isArray(result) ? result : (result as any).data || [];
+      if (pinnedResult) {
+        pinnedPosts = Array.isArray(pinnedResult) ? pinnedResult : [];
+      }
       if (reset) {
         posts = items;
       } else {
@@ -172,6 +188,14 @@
       feedLoading = false;
     }
   }
+
+  // Pinned posts render at the top of the Posts tab. Filter them out of
+  // the regular feed so the same post doesn't appear twice.
+  let displayPosts = $derived.by(() => {
+    if (activeTab !== 'posts' || pinnedPosts.length === 0) return posts;
+    const pinnedIds = new Set(pinnedPosts.map((p) => p.id));
+    return [...pinnedPosts, ...posts.filter((p) => !pinnedIds.has(p.id))];
+  });
 
   function handleTabChange() {
     loadPosts(true);
@@ -305,16 +329,38 @@
     posts = posts.map((p) => (p.id === oldId ? post : p));
   }
 
+  // Reflect a pin/unpin from the menu without reloading the whole tab.
+  function handlePinChanged(e: Event) {
+    const { id, pinned, post: updated } = (e as CustomEvent<{
+      id: string;
+      pinned: boolean;
+      post: Post;
+    }>).detail;
+    if (!id || !isOwnProfile) return;
+    if (pinned) {
+      // Move it into the pinned list (newest pin first) and stamp
+      // is_pinned=true in the regular array so the indicator shows
+      // even before the next refetch.
+      pinnedPosts = [updated, ...pinnedPosts.filter((p) => p.id !== id)];
+      posts = posts.map((p) => (p.id === id ? { ...p, is_pinned: true } : p));
+    } else {
+      pinnedPosts = pinnedPosts.filter((p) => p.id !== id);
+      posts = posts.map((p) => (p.id === id ? { ...p, is_pinned: false } : p));
+    }
+  }
+
   onMount(() => {
     loadProfile();
 
     window.addEventListener('chat-event', handleRealtimeEvent as EventListener);
     window.addEventListener('new-post', handleNewPost);
     window.addEventListener('post-replace', handlePostReplace);
+    window.addEventListener('post-pin-changed', handlePinChanged);
     return () => {
       window.removeEventListener('chat-event', handleRealtimeEvent as EventListener);
       window.removeEventListener('new-post', handleNewPost);
       window.removeEventListener('post-replace', handlePostReplace);
+      window.removeEventListener('post-pin-changed', handlePinChanged);
       unsub();
     };
   });
@@ -439,7 +485,7 @@
       <Tabs {tabs} bind:active={activeTab}>
         {#if activeTab === 'posts' || activeTab === 'replies' || activeTab === 'media' || activeTab === 'reactions'}
           <FeedList
-            {posts}
+            posts={displayPosts}
             loading={feedLoading}
             {hasMore}
             onloadmore={() => loadPosts(false)}

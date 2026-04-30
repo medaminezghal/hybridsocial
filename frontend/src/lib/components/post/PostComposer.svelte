@@ -1064,10 +1064,20 @@
   }
 
   const visibilityOptions = [
-    { value: 'public' as const, label: 'Public', icon: '\u{1F30D}' },
-    { value: 'followers' as const, label: 'Followers only', icon: '\u{1F512}' },
-    { value: 'direct' as const, label: 'Direct message', icon: '\u{2709}\u{FE0F}' },
+    { value: 'public' as const, label: 'Public', icon: 'public' },
+    { value: 'followers' as const, label: 'Followers only', icon: 'lock' },
+    { value: 'direct' as const, label: 'Direct message', icon: 'mail' },
   ];
+
+  let visibilityMenuOpen = $state(false);
+  let visibilityCurrent = $derived(
+    visibilityOptions.find((o) => o.value === visibility) ?? visibilityOptions[0],
+  );
+
+  function setVisibility(v: ComposerVisibility) {
+    visibility = v;
+    visibilityMenuOpen = false;
+  }
 </script>
 
 <!-- Floating action button -->
@@ -1475,16 +1485,47 @@
         {/if}
 
         <!-- Visibility selector -->
-        <select
-          class="visibility-select"
-          bind:value={visibility}
-          aria-label="Post visibility"
-          title="Who can see this post"
-        >
-          {#each visibilityOptions as opt (opt.value)}
-            <option value={opt.value}>{opt.icon} {opt.label}</option>
-          {/each}
-        </select>
+        <div class="visibility-picker">
+          <button
+            type="button"
+            class="tool-btn"
+            class:tool-active={visibilityMenuOpen}
+            onclick={() => (visibilityMenuOpen = !visibilityMenuOpen)}
+            aria-label="Post visibility — {visibilityCurrent.label}"
+            aria-haspopup="menu"
+            aria-expanded={visibilityMenuOpen}
+            title={visibilityCurrent.label}
+          >
+            <span class="material-symbols-outlined tool-icon">{visibilityCurrent.icon}</span>
+          </button>
+          {#if visibilityMenuOpen}
+            <!-- Click-away catcher: a fixed-position transparent layer
+                 below the menu so clicking anywhere else dismisses it
+                 without us having to wire a global listener. -->
+            <button
+              type="button"
+              class="visibility-backdrop"
+              aria-hidden="true"
+              tabindex="-1"
+              onclick={() => (visibilityMenuOpen = false)}
+            ></button>
+            <div class="visibility-menu" role="menu">
+              {#each visibilityOptions as opt (opt.value)}
+                <button
+                  type="button"
+                  class="visibility-menu-item"
+                  class:visibility-menu-item-active={opt.value === visibility}
+                  role="menuitemradio"
+                  aria-checked={opt.value === visibility}
+                  onclick={() => setVisibility(opt.value)}
+                >
+                  <span class="material-symbols-outlined visibility-menu-icon">{opt.icon}</span>
+                  <span>{opt.label}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
 
         <!-- NSFW toggle -->
         <button
@@ -2410,19 +2451,64 @@
     position: relative;
   }
 
-  .visibility-select {
-    padding: 4px 8px;
-    border: 1px solid var(--color-border);
-    border-radius: 9999px;
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
-    background: var(--color-surface-container-lowest);
-    cursor: pointer;
+  .visibility-picker {
+    position: relative;
+    display: inline-flex;
   }
 
-  .visibility-select:focus {
-    outline: none;
-    border-color: var(--color-primary);
+  .visibility-backdrop {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: default;
+    z-index: 99;
+  }
+
+  .visibility-menu {
+    position: absolute;
+    inset-block-end: calc(100% + 6px);
+    inset-inline-start: 0;
+    z-index: 100;
+    min-width: 180px;
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg, 12px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .visibility-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md, 8px);
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    text-align: start;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  .visibility-menu-item:hover {
+    background: var(--color-surface-hover, rgba(0, 0, 0, 0.04));
+  }
+
+  .visibility-menu-item-active {
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  .visibility-menu-icon {
+    font-size: 20px;
+    color: inherit;
   }
 
   .composer-right {

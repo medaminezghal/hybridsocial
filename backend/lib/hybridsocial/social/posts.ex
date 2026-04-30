@@ -1396,6 +1396,7 @@ defmodule Hybridsocial.Social.Posts do
     exclude_replies = Keyword.get(opts, :exclude_replies, false)
     only_media = Keyword.get(opts, :only_media, false)
     only_direct = Keyword.get(opts, :only_direct, false)
+    pinned = Keyword.get(opts, :pinned, false)
     viewer_id = Keyword.get(opts, :viewer_id)
 
     base =
@@ -1406,6 +1407,8 @@ defmodule Hybridsocial.Social.Posts do
       # couldn't pick a deterministic next-page boundary.
       |> order_by([p], desc: p.published_at, desc: p.id)
       |> limit(^limit)
+
+    base = if pinned, do: where(base, [p], p.is_pinned == true), else: base
 
     # The "Direct" profile tab is a recipient-facing view: it shows
     # every direct-visibility post the identity is either the author

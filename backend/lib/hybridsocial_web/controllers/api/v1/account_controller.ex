@@ -193,6 +193,7 @@ defmodule HybridsocialWeb.Api.V1.AccountController do
         exclude_replies: params["exclude_replies"] == "true",
         only_media: params["only_media"] == "true",
         only_direct: only_direct,
+        pinned: params["pinned"] == "true",
         max_id: params["max_id"],
         viewer_id: viewer_id
       ]

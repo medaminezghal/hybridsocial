@@ -3,6 +3,7 @@
   import { api } from '$lib/api/client.js';
   import { authStore } from '$lib/stores/auth.js';
   import { mute, unmute, block, unblock } from '$lib/api/accounts.js';
+  import { pinPost, unpinPost } from '$lib/api/statuses.js';
   import { get } from 'svelte/store';
   import ReactionPicker from './ReactionPicker.svelte';
   import { markSeen } from '$lib/utils/seen-posts.js';
@@ -409,6 +410,45 @@
     onedit?.();
   }
 
+  let isPinned = $state(!!post.is_pinned);
+
+  async function handlePinToggle(e: MouseEvent) {
+    e.stopPropagation();
+    showMoreMenu = false;
+    const wasPinned = isPinned;
+    try {
+      const updated = wasPinned ? await unpinPost(post.id) : await pinPost(post.id);
+      isPinned = !!updated.is_pinned;
+      // Notify the profile page so it can reorder pinned posts to the top.
+      window.dispatchEvent(
+        new CustomEvent('post-pin-changed', {
+          detail: { id: post.id, pinned: isPinned, post: updated },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent('toast', {
+          detail: {
+            message: isPinned ? 'Pinned to profile' : 'Unpinned from profile',
+            type: 'success',
+          },
+        }),
+      );
+    } catch (err: unknown) {
+      // The pin endpoint returns 422 with `{error: "limits.max_pinned_posts", max}`
+      // when the user is over their tier's pin allowance. Surface the
+      // limit so they know to unpin something first / upgrade.
+      const apiErr = err as { body?: { error?: string; max?: number }; message?: string };
+      let message = 'Could not update pin';
+      if (apiErr?.body?.error === 'limits.max_pinned_posts') {
+        const max = apiErr.body.max ?? 1;
+        message = `Pin limit reached (${max}). Unpin another post first.`;
+      }
+      window.dispatchEvent(
+        new CustomEvent('toast', { detail: { message, type: 'error' } }),
+      );
+    }
+  }
+
   function handleReport(e: MouseEvent) {
     e.stopPropagation();
     showMoreMenu = false;
@@ -768,6 +808,10 @@
           {isPostMuted ? 'Unmute notifications' : 'Mute notifications'}
         </button>
         {#if isOwnPost()}
+          <button type="button" class="more-menu-item" role="menuitem" onclick={handlePinToggle}>
+            <span class="material-symbols-outlined menu-icon">{isPinned ? 'keep_off' : 'push_pin'}</span>
+            {isPinned ? 'Unpin from profile' : 'Pin to profile'}
+          </button>
           {#if !post.edit_expires_at || new Date(post.edit_expires_at) > new Date()}
             <button type="button" class="more-menu-item" role="menuitem" onclick={handleEdit}>
               <span class="material-symbols-outlined menu-icon">edit</span>

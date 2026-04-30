@@ -517,6 +517,12 @@
 
     <!-- Content column -->
     <div class="post-content-col">
+      {#if post.is_pinned}
+        <div class="post-pinned-indicator" title="Pinned to profile">
+          <span class="material-symbols-outlined pinned-icon" aria-hidden="true">push_pin</span>
+          <span>Pinned</span>
+        </div>
+      {/if}
       <div class="post-author-line">
         <div class="post-author-info">
           <div class="post-author-name-row">
@@ -1284,6 +1290,22 @@
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
     margin-block-end: 4px;
+  }
+
+  .post-pinned-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--color-text-tertiary);
+    margin-block-end: 4px;
+    padding-inline-start: 2px;
+  }
+
+  .pinned-icon {
+    font-size: 14px;
+    transform: rotate(45deg);
   }
 
   /* "Posted in <Group>" / "Posted on <Page>" chip — sits between
