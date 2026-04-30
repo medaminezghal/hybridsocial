@@ -18,30 +18,42 @@
     color?: string;
   } = $props();
 
+  // While the collector is still warming up (or a window happens to
+  // catch a quiet period) a 2- or 3-point line gets drawn corner to
+  // corner, which looks like noise. Suppress until we have enough
+  // points to read as a trend.
+  const MIN_POINTS = 5;
+
   let path = $derived.by(() => {
-    if (!points || points.length < 2) return '';
+    if (!points || points.length < MIN_POINTS) return '';
     let min = Infinity;
     let max = -Infinity;
     for (const p of points) {
       if (p.v < min) min = p.v;
       if (p.v > max) max = p.v;
     }
-    // Flat series: draw a single horizontal line in the middle so
-    // the chart shows "we have data, no movement" rather than
-    // collapsing to a single dot at the top.
-    if (min === max) {
-      return `M0,${height / 2} L${width},${height / 2}`;
-    }
     const range = max - min;
+
+    // Y-axis padding: without it, any non-zero variation gets stretched
+    // to the full sparkline height, so a 1-byte change in DB size
+    // looks identical to a 10x spike. Floor the visible range at 5%
+    // of |max| (or 1 if max is 0) so tiny noise reads as flat-ish.
+    const headroom = Math.max(Math.abs(max) * 0.05, 1);
+    const visibleRange = Math.max(range, headroom);
+    const visibleMin = (min + max) / 2 - visibleRange / 2;
+
     const stepX = width / (points.length - 1);
     let d = '';
     for (let i = 0; i < points.length; i++) {
       const x = i * stepX;
-      const y = height - ((points[i].v - min) / range) * height;
+      const norm = (points[i].v - visibleMin) / visibleRange;
+      const y = height - norm * height;
       d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
     }
     return d.trim();
   });
+
+  let warmingUp = $derived(!!points && points.length > 0 && points.length < MIN_POINTS);
 </script>
 
 {#if path}
@@ -55,6 +67,8 @@
   >
     <path d={path} fill="none" stroke={color} stroke-width="1.5" stroke-linejoin="round" />
   </svg>
+{:else if warmingUp}
+  <span class="sparkline-warmup" title="Collecting samples — needs ~5 minutes" aria-hidden="true">···</span>
 {:else}
   <span class="sparkline-empty" aria-hidden="true">—</span>
 {/if}
@@ -68,5 +82,12 @@
   .sparkline-empty {
     color: var(--color-text-tertiary);
     font-size: 0.75rem;
+  }
+
+  .sparkline-warmup {
+    color: var(--color-text-tertiary);
+    font-size: 1rem;
+    letter-spacing: 2px;
+    font-weight: 700;
   }
 </style>
