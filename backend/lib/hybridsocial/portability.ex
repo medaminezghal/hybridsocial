@@ -116,46 +116,90 @@ defmodule Hybridsocial.Portability do
 
   # --- Data Import ---
 
-  def import_follows(identity_id, csv_data) do
-    csv_data
-    |> String.split("\n", trim: true)
-    |> Enum.reject(&(String.trim(&1) == ""))
-    |> Enum.reduce({0, 0}, fn line, {success, failed} ->
-      handle = String.trim(line)
+  def import_follows(identity_id, data),
+    do: import_handles(data, fn handle -> apply_follow(identity_id, handle) end)
 
-      case Accounts.get_identity_by_handle(handle) do
-        nil ->
-          {success, failed + 1}
+  def import_blocks(identity_id, data),
+    do: import_handles(data, fn handle -> apply_block(identity_id, handle) end)
 
-        target ->
-          case Hybridsocial.Social.follow(identity_id, target.id) do
-            {:ok, _} -> {success + 1, failed}
-            _ -> {success, failed + 1}
-          end
-      end
-    end)
-    |> then(fn {success, failed} -> {:ok, %{imported: success, failed: failed}} end)
+  def import_mutes(identity_id, data),
+    do: import_handles(data, fn handle -> apply_mute(identity_id, handle) end)
+
+  defp apply_follow(identity_id, handle) do
+    with %{} = target <- Accounts.get_identity_by_handle(handle),
+         {:ok, _} <- Hybridsocial.Social.follow(identity_id, target.id) do
+      :ok
+    else
+      _ -> :error
+    end
   end
 
-  def import_blocks(identity_id, csv_data) do
-    csv_data
-    |> String.split("\n", trim: true)
-    |> Enum.reject(&(String.trim(&1) == ""))
-    |> Enum.reduce({0, 0}, fn line, {success, failed} ->
-      handle = String.trim(line)
+  defp apply_block(identity_id, handle) do
+    with %{} = target <- Accounts.get_identity_by_handle(handle),
+         {:ok, _} <- Hybridsocial.Social.block(identity_id, target.id) do
+      :ok
+    else
+      _ -> :error
+    end
+  end
 
-      case Accounts.get_identity_by_handle(handle) do
-        nil ->
-          {success, failed + 1}
+  defp apply_mute(identity_id, handle) do
+    with %{} = target <- Accounts.get_identity_by_handle(handle),
+         {:ok, _} <- Hybridsocial.Social.mute(identity_id, target.id) do
+      :ok
+    else
+      _ -> :error
+    end
+  end
 
-        target ->
-          case Hybridsocial.Social.block(identity_id, target.id) do
-            {:ok, _} -> {success + 1, failed}
-            _ -> {success, failed + 1}
-          end
-      end
-    end)
-    |> then(fn {success, failed} -> {:ok, %{imported: success, failed: failed}} end)
+  # Shared CSV parser. Accepts either a single string blob or a
+  # pre-split list of lines (the frontend used to do its own split,
+  # which crashed String.split here). Strips Mastodon's "Account
+  # address,Show boosts" header when present, then takes the first
+  # CSV cell of each remaining row as the handle.
+  defp import_handles(data, action_fn) do
+    handles =
+      data
+      |> normalize_to_lines()
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "#")))
+      |> drop_csv_header()
+      |> Enum.map(&first_csv_cell/1)
+      |> Enum.reject(&(&1 == ""))
+
+    {success, failed} =
+      Enum.reduce(handles, {0, 0}, fn handle, {ok, fail} ->
+        case action_fn.(handle) do
+          :ok -> {ok + 1, fail}
+          _ -> {ok, fail + 1}
+        end
+      end)
+
+    {:ok, %{imported: success, failed: failed}}
+  end
+
+  defp normalize_to_lines(s) when is_binary(s), do: String.split(s, ~r/\r?\n/, trim: true)
+  defp normalize_to_lines(list) when is_list(list), do: list
+  defp normalize_to_lines(_), do: []
+
+  defp drop_csv_header([first | rest] = lines) do
+    if csv_header?(first), do: rest, else: lines
+  end
+
+  defp drop_csv_header([]), do: []
+
+  defp csv_header?(line) do
+    cell = line |> first_csv_cell() |> String.downcase()
+    cell == "account address" or cell == "account" or cell == "handle"
+  end
+
+  defp first_csv_cell(line) do
+    line
+    |> String.split(",", parts: 2)
+    |> List.first()
+    |> Kernel.||("")
+    |> String.trim()
+    |> String.trim_leading("@")
   end
 
   # --- Account Deletion ---

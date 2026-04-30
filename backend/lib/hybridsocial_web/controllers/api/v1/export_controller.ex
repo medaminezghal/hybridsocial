@@ -98,6 +98,7 @@ defmodule HybridsocialWeb.Api.V1.ExportController do
       case type do
         "follows" -> Portability.import_follows(identity.id, data)
         "blocks" -> Portability.import_blocks(identity.id, data)
+        "mutes" -> Portability.import_mutes(identity.id, data)
         _ -> {:error, :invalid_type}
       end
 
@@ -108,7 +109,7 @@ defmodule HybridsocialWeb.Api.V1.ExportController do
       {:error, :invalid_type} ->
         conn
         |> put_status(:unprocessable_entity)
-        |> json(%{error: "import.invalid_type", message: "Supported types: follows, blocks"})
+        |> json(%{error: "import.invalid_type", message: "Supported types: follows, blocks, mutes"})
     end
   end
 

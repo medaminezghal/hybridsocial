@@ -59,11 +59,13 @@
 
     importing = true;
     try {
-      // Read CSV file and parse into array of handles
+      // Send the raw CSV body — the backend handles header rows
+      // (Mastodon exports start with "Account address,Show boosts")
+      // and per-line CSV parsing. Splitting client-side here used to
+      // crash backend's String.split because it received a list.
       const text = await importFile.text();
-      const lines = text.split(/[\r\n]+/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
 
-      await api.post('/api/v1/import', { type: importType, data: lines });
+      await api.post('/api/v1/import', { type: importType, data: text });
       addToast('Import completed successfully', 'success');
       importFile = null;
       if (fileInput) fileInput.value = '';
@@ -193,6 +195,7 @@
             <select id="import-type" class="stitch-input" bind:value={importType}>
               <option value="follows">Follows</option>
               <option value="blocks">Blocks</option>
+              <option value="mutes">Mutes</option>
             </select>
           </div>
 
