@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Post } from '$lib/api/types.js';
-  import { goto } from '$app/navigation';
+  import { goto, beforeNavigate } from '$app/navigation';
   import { relativeTime, relativeTimeFuture, fullDateTime } from '$lib/utils/time.js';
   import { editPost, getPost } from '$lib/api/statuses.js';
   import { uploadMedia } from '$lib/api/media.js';
@@ -69,7 +69,7 @@
   import Modal from '$lib/components/ui/Modal.svelte';
   import { parseYouTubeUrl, findYouTubeInContent } from '$lib/utils/youtube.js';
   import { focusedPostId } from '$lib/stores/focused-post.js';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
 
   let {
     post,
@@ -413,23 +413,146 @@
   let pollVotesCount = $state(post.poll?.votes_count ?? 0);
   let pollVotersCount = $state(post.poll?.voters_count ?? 0);
   let pollExpired = $state(post.poll?.expired ?? false);
-  let selectedPollOptions = $state<number[]>([]);
   let pollVoting = $state(false);
 
-  let showPollResults = $derived(pollVoted || pollExpired);
+  // Pending-vote state: while not null, a vote has been selected but
+  // not yet sent to the server. The countdown ticks down from
+  // COUNTDOWN_SECONDS; clicking another option resets it. Holding the
+  // submit lets the user undo a misclick before any federation
+  // happens. We block in-app navigation while this is non-null so the
+  // user can't accidentally walk away from a vote that's about to go
+  // out (or stays unsubmitted forever).
+  const COUNTDOWN_SECONDS = 5;
+  let pendingVoteOptions = $state<number[] | null>(null);
+  let countdownRemaining = $state(COUNTDOWN_SECONDS);
+  let countdownTimer: ReturnType<typeof setInterval> | null = null;
 
-  function togglePollOption(index: number) {
-    if (showPollResults || pollVoting) return;
-    if (post.poll?.multiple) {
-      if (selectedPollOptions.includes(index)) {
-        selectedPollOptions = selectedPollOptions.filter((i) => i !== index);
-      } else {
-        selectedPollOptions = [...selectedPollOptions, index];
+  let showPollResults = $derived(pollVoted || pollExpired || pendingVoteOptions !== null);
+
+  // The user's effective choice for rendering: the locked-in own_votes
+  // once committed, or the pending selection while the countdown is
+  // still running.
+  let displayOwnVotes = $derived(pendingVoteOptions ?? pollOwnVotes);
+
+  // Optimistic vote counts so the user sees their vote land in the
+  // bars immediately. Once the server confirms, pollOptions /
+  // pollVotesCount are overwritten with authoritative values.
+  let displayVotesTotal = $derived(
+    pendingVoteOptions ? pollVotesCount + pendingVoteOptions.length : pollVotesCount,
+  );
+
+  function startOrResetCountdown() {
+    countdownRemaining = COUNTDOWN_SECONDS;
+    if (countdownTimer) clearInterval(countdownTimer);
+    countdownTimer = setInterval(() => {
+      countdownRemaining -= 1;
+      if (countdownRemaining <= 0) {
+        finishCountdown();
       }
-    } else {
-      selectedPollOptions = [index];
+    }, 1000);
+  }
+
+  function clearCountdownTimer() {
+    if (countdownTimer) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
     }
   }
+
+  function cancelPendingVote(e?: Event) {
+    e?.stopPropagation();
+    clearCountdownTimer();
+    pendingVoteOptions = null;
+    countdownRemaining = COUNTDOWN_SECONDS;
+  }
+
+  async function finishCountdown() {
+    clearCountdownTimer();
+    if (!post.poll || !pendingVoteOptions || pendingVoteOptions.length === 0) {
+      pendingVoteOptions = null;
+      return;
+    }
+    const choices = pendingVoteOptions;
+    pendingVoteOptions = null;
+    pollVoting = true;
+    try {
+      const result = await api.post<typeof post.poll>(`/api/v1/polls/${post.poll.id}/votes`, {
+        choices,
+      });
+      pollVoted = true;
+      pollOwnVotes = result.own_votes;
+      pollOptions = result.options;
+      pollVotesCount = result.votes_count;
+      pollVotersCount = result.voters_count;
+      pollExpired = result.expired;
+    } catch {
+      // Restore the selection so the user can either retry or cancel
+      // explicitly. Counts aren't bumped on the server, so optimistic
+      // numbers are fine to show again.
+      pendingVoteOptions = choices;
+      countdownRemaining = COUNTDOWN_SECONDS;
+    } finally {
+      pollVoting = false;
+    }
+  }
+
+  function handlePollOptionClick(index: number, e: Event) {
+    e.stopPropagation();
+    if (pollVoted || pollExpired || pollVoting) return;
+    if (post.poll?.multiple) {
+      const current = pendingVoteOptions ?? [];
+      const next = current.includes(index)
+        ? current.filter((i) => i !== index)
+        : [...current, index];
+      if (next.length === 0) {
+        cancelPendingVote();
+        return;
+      }
+      pendingVoteOptions = next;
+    } else {
+      pendingVoteOptions = [index];
+    }
+    startOrResetCountdown();
+  }
+
+  // Block in-app navigation while a vote is pending. Letting the user
+  // walk away would either silently drop the vote or surface it later
+  // with no clear feedback — both worse than a one-line nudge to
+  // either cancel or wait.
+  beforeNavigate((nav) => {
+    if (pendingVoteOptions !== null && nav.cancel) {
+      nav.cancel();
+      window.dispatchEvent(
+        new CustomEvent('toast', {
+          detail: {
+            message: 'Cancel your pending vote or wait for it to submit.',
+            type: 'warning',
+          },
+        }),
+      );
+    }
+  });
+
+  // Tab close / hard reload while a vote is pending: trigger the
+  // browser's native confirm. We can't customise the message, but the
+  // prompt itself is enough to stop accidental closes.
+  $effect(() => {
+    if (pendingVoteOptions === null) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  });
+
+  // Don't leave a setInterval running after the card unmounts (feed
+  // reshuffle, route change with the card off-screen, etc.) — the
+  // beforeNavigate gate covers same-app navigation, but a feed
+  // teardown can still drop the component while the timer is live.
+  onDestroy(() => {
+    clearCountdownTimer();
+  });
 
   // Poll voters modal — lists who voted but not what they chose, per
   // privacy-of-vote rule. Loaded on demand the first time the modal
@@ -463,25 +586,6 @@
     }
   }
 
-  async function submitPollVote() {
-    if (!post.poll || selectedPollOptions.length === 0 || pollVoting) return;
-    pollVoting = true;
-    try {
-      const result = await api.post<typeof post.poll>(`/api/v1/polls/${post.poll.id}/votes`, {
-        choices: selectedPollOptions,
-      });
-      pollVoted = true;
-      pollOwnVotes = result.own_votes;
-      pollOptions = result.options;
-      pollVotesCount = result.votes_count;
-      pollVotersCount = result.voters_count;
-      pollExpired = result.expired;
-    } catch {
-      // Handle error silently
-    } finally {
-      pollVoting = false;
-    }
-  }
 
   function navigateToPost() {
     markSeen(post.id);
@@ -719,12 +823,13 @@
           {#if post.poll && !compact}
             <div class="post-poll">
               {#each pollOptions as option, i (i)}
-                {@const pct = pollVotesCount > 0 ? Math.round(option.votes_count / pollVotesCount * 100) : 0}
+                {@const optimisticCount = option.votes_count + (pendingVoteOptions?.includes(i) ? 1 : 0)}
+                {@const pct = displayVotesTotal > 0 ? Math.round(optimisticCount / displayVotesTotal * 100) : 0}
                 {#if showPollResults}
-                  <div class="poll-result-row" class:poll-result-mine={pollOwnVotes.includes(i)}>
+                  <div class="poll-result-row" class:poll-result-mine={displayOwnVotes.includes(i)}>
                     <div class="poll-result-header">
                       <span class="poll-result-title">
-                        {#if pollOwnVotes.includes(i)}
+                        {#if displayOwnVotes.includes(i)}
                           <span class="poll-voted-check" aria-label="Your vote">&#10003;</span>
                         {/if}
                         {option.title}
@@ -732,36 +837,35 @@
                       <span class="poll-result-pct">{pct}%</span>
                     </div>
                     <div class="poll-result-track" aria-hidden="true">
-                      <div class="poll-result-fill" style="width: {pct}%"></div>
+                      <div
+                        class="poll-result-fill"
+                        class:poll-result-fill-mine={displayOwnVotes.includes(i)}
+                        style="width: {pct}%"
+                      ></div>
                     </div>
                   </div>
                 {:else}
                   <button
                     type="button"
                     class="poll-option poll-votable"
-                    class:poll-selected={selectedPollOptions.includes(i)}
-                    onclick={(e) => { e.stopPropagation(); togglePollOption(i); }}
+                    onclick={(e) => handlePollOptionClick(i, e)}
                   >
                     <span class="poll-check-indicator">
-                      {#if post.poll?.multiple}
-                        {#if selectedPollOptions.includes(i)}&#9632;{:else}&#9633;{/if}
-                      {:else}
-                        {#if selectedPollOptions.includes(i)}&#9679;{:else}&#9675;{/if}
-                      {/if}
+                      {#if post.poll?.multiple}&#9633;{:else}&#9675;{/if}
                     </span>
                     <span class="poll-label">{option.title}</span>
                   </button>
                 {/if}
               {/each}
 
-              {#if !showPollResults && selectedPollOptions.length > 0}
+              {#if pendingVoteOptions !== null}
                 <button
                   type="button"
-                  class="poll-vote-btn"
-                  onclick={(e) => { e.stopPropagation(); submitPollVote(); }}
-                  disabled={pollVoting}
+                  class="poll-cancel-btn"
+                  onclick={cancelPendingVote}
                 >
-                  {pollVoting ? 'Voting...' : 'Vote'}
+                  <span class="material-symbols-outlined poll-cancel-icon">undo</span>
+                  Cancel vote ({countdownRemaining}s)
                 </button>
               {/if}
 
@@ -773,10 +877,10 @@
                     onclick={openVoters}
                     aria-label="View voters"
                   >
-                    {pollVotesCount} {pollVotesCount === 1 ? 'vote' : 'votes'}
+                    {displayVotesTotal} {displayVotesTotal === 1 ? 'vote' : 'votes'}
                   </button>
                 {:else}
-                  {pollVotesCount} {pollVotesCount === 1 ? 'vote' : 'votes'}
+                  {displayVotesTotal} {displayVotesTotal === 1 ? 'vote' : 'votes'}
                 {/if}
                 {#if pollExpired}
                   &middot; Ended
@@ -2309,6 +2413,13 @@
     background: var(--color-primary);
     border-radius: inherit;
     transition: width 350ms ease;
+    /* Non-voted options sit at half-strength so the user's pick reads
+       at a glance — same hue, less ink. */
+    opacity: 0.4;
+  }
+
+  .poll-result-fill-mine {
+    opacity: 1;
   }
 
   .poll-voted-check {
@@ -2362,26 +2473,34 @@
     z-index: 1;
   }
 
-  .poll-vote-btn {
+  /* Pending-vote pill: lets the user undo before the countdown
+     submits. The countdown number lives inside the label so the
+     button stays a single hit target. */
+  .poll-cancel-btn {
     align-self: flex-start;
-    padding: 6px 20px;
-    border: 1px solid var(--color-primary);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px 6px 10px;
+    border: 1px solid var(--color-border);
     border-radius: 9999px;
-    background: transparent;
-    color: var(--color-primary);
-    font-size: 0.875rem;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
-    transition: background-color 150ms ease;
+    transition: background-color 150ms ease, border-color 150ms ease;
+    font-variant-numeric: tabular-nums;
   }
 
-  .poll-vote-btn:hover:not(:disabled) {
-    background: var(--color-primary-soft);
+  .poll-cancel-btn:hover {
+    background: var(--color-surface-hover, var(--color-surface));
+    border-color: var(--color-primary);
+    color: var(--color-primary);
   }
 
-  .poll-vote-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .poll-cancel-icon {
+    font-size: 16px;
   }
 
   .poll-info {
