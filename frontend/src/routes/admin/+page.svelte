@@ -4,13 +4,13 @@
   import ServicePanel from '$lib/components/admin/ServicePanel.svelte';
   import { addToast } from '$lib/stores/toast.js';
   import { api } from '$lib/api/client.js';
-  import { getDashboardStats, getRecentReports, getVerifications, approveVerification, rejectVerification } from '$lib/api/admin.js';
-  import type { AdminDashboardStats, AdminReport } from '$lib/api/types.js';
+  import { getDashboardStats, getVerifications, approveVerification, rejectVerification } from '$lib/api/admin.js';
+  import type { AdminDashboardStats } from '$lib/api/types.js';
   import type { VerificationRequest } from '$lib/api/admin.js';
 
   let stats: AdminDashboardStats | null = $state(null);
-  let recentReports: AdminReport[] = $state([]);
   let pendingVerifications: VerificationRequest[] = $state([]);
+  let pendingApprovalsCount = $state(0);
   let loading = $state(true);
 
   // Historical service metrics (1h sparklines + latest values).
@@ -88,14 +88,21 @@
 
   onMount(async () => {
     try {
-      const [s, r, v] = await Promise.all([
+      const [s, v, pa] = await Promise.all([
         getDashboardStats(),
-        getRecentReports(),
-        getVerifications({ status: 'pending', limit: '10' }).catch(() => [])
+        getVerifications({ status: 'pending', limit: '10' }).catch(() => []),
+        // Account-registration approvals are surfaced as a stats card
+        // and link to /admin/approvals. We only need the count, but the
+        // endpoint returns the full pending list — the page is the
+        // authoritative actor view.
+        api
+          .get<{ data: { id: string }[] }>('/api/v1/admin/pending_accounts')
+          .then((res) => (res.data || []).length)
+          .catch(() => 0),
       ]);
       stats = s;
-      recentReports = r;
       pendingVerifications = v;
+      pendingApprovalsCount = pa;
     } catch (e) {
       addToast('Failed to load dashboard data', 'error');
     } finally {
@@ -142,14 +149,6 @@
     });
   }
 
-  function statusClass(status: string): string {
-    switch (status) {
-      case 'pending': return 'status-pending';
-      case 'resolved': return 'status-resolved';
-      case 'dismissed': return 'status-dismissed';
-      default: return '';
-    }
-  }
 </script>
 
 <svelte:head>
@@ -190,6 +189,16 @@
         value={stats.open_reports.toLocaleString()}
         icon="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"
         href="/admin/moderation"
+        alert={stats.open_reports > 0}
+        alertLabel={`${stats.open_reports} open reports — needs attention`}
+      />
+      <StatsCard
+        label="Approvals"
+        value={pendingApprovalsCount.toLocaleString()}
+        icon="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+        href="/admin/approvals"
+        alert={pendingApprovalsCount > 0}
+        alertLabel={`${pendingApprovalsCount} pending approvals — needs attention`}
       />
     {/if}
   </div>
@@ -232,47 +241,26 @@
     </div>
   </section>
 
-  <div class="dashboard-panels">
-    <section class="panel card">
-      <h2 class="panel-title">Recent Reports</h2>
-      {#if loading}
-        <div class="panel-loading">
-          {#each Array(3) as _}
-            <div class="skeleton" style="height: 48px; margin-bottom: 8px"></div>
-          {/each}
-        </div>
-      {:else if recentReports.length === 0}
-        <p class="panel-empty">No open reports</p>
-      {:else}
-        <ul class="report-list">
-          {#each recentReports as report (report.id)}
-            <li class="report-item">
-              <div class="report-info">
-                <span class="report-category">{report.category}</span>
-                <span class="report-target">@{report.target_account.handle}</span>
-              </div>
-              <div class="report-meta">
-                <span class="report-status {statusClass(report.status)}">{report.status}</span>
-                <span class="report-date">{formatDate(report.created_at)}</span>
-              </div>
-            </li>
-          {/each}
-        </ul>
-        <a href="/admin/moderation" class="panel-link">View all reports</a>
-      {/if}
-    </section>
-
-    <section class="panel card">
-      <h2 class="panel-title">Quick Actions</h2>
-      <div class="quick-actions">
-        <a href="/admin/users" class="quick-action-btn btn btn-outline">Manage Users</a>
-        <a href="/admin/moderation" class="quick-action-btn btn btn-outline">Review Reports</a>
-        <a href="/admin/federation" class="quick-action-btn btn btn-outline">Federation Status</a>
-        <a href="/admin/theme" class="quick-action-btn btn btn-outline">Theme & Branding</a>
-        <a href="/admin/announcements" class="quick-action-btn btn btn-outline">Announcements</a>
-      </div>
-    </section>
-  </div>
+  <section class="quick-actions-section">
+    <h2 class="section-heading">Quick actions</h2>
+    <div class="quick-actions-grid">
+      {#each [
+        { href: '/admin/users', icon: 'group', label: 'Manage users' },
+        { href: '/admin/moderation', icon: 'gavel', label: 'Review reports' },
+        { href: '/admin/federation', icon: 'hub', label: 'Federation' },
+        { href: '/admin/theme', icon: 'palette', label: 'Theme & branding' },
+        { href: '/admin/announcements', icon: 'campaign', label: 'Announcements' },
+        { href: '/admin/email', icon: 'mail', label: 'Email' },
+        { href: '/admin/tiers', icon: 'workspace_premium', label: 'Tiers' },
+        { href: '/admin/audit-log', icon: 'list', label: 'Audit log' },
+      ] as action (action.href)}
+        <a href={action.href} class="quick-action-card card card-hover">
+          <span class="material-symbols-outlined quick-action-icon" aria-hidden="true">{action.icon}</span>
+          <span class="quick-action-label">{action.label}</span>
+        </a>
+      {/each}
+    </div>
+  </section>
 
   <!-- Pending Verification Requests -->
   {#if pendingVerifications.length > 0}
@@ -333,104 +321,47 @@
     margin-block-end: var(--space-6);
   }
 
-  .dashboard-panels {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-4);
-  }
-
   .panel-title {
     font-size: var(--text-lg);
     font-weight: 600;
     margin-block-end: var(--space-4);
   }
 
-  .panel-empty {
-    color: var(--color-text-tertiary);
-    font-size: var(--text-sm);
-    text-align: center;
-    padding: var(--space-6) 0;
+  /* Quick actions section: cards in the same visual family as
+     StatsCard but icon-led + label only (no number). */
+  .quick-actions-section {
+    margin-block-end: var(--space-6);
   }
 
-  .panel-loading {
-    padding: var(--space-2) 0;
-  }
-
-  .report-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .report-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-2) var(--space-3);
-    background: var(--color-surface);
-    border-radius: var(--radius-md);
-    font-size: var(--text-sm);
-  }
-
-  .report-info {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .report-category {
-    font-weight: 600;
-  }
-
-  .report-target {
-    color: var(--color-text-secondary);
-  }
-
-  .report-meta {
-    display: flex;
-    align-items: center;
+  .quick-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: var(--space-3);
   }
 
-  .report-status {
-    font-size: var(--text-xs);
-    font-weight: 600;
-    padding: 2px var(--space-2);
-    border-radius: var(--radius-full);
+  .quick-action-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-4);
+    text-decoration: none;
+    color: inherit;
   }
 
-  .status-pending {
-    background: var(--color-warning-soft);
-    color: #92400e;
+  .quick-action-card:hover {
+    text-decoration: none;
   }
 
-  .status-resolved {
-    background: var(--color-success-soft);
-    color: #166534;
-  }
-
-  .status-dismissed {
-    background: var(--color-surface);
-    color: var(--color-text-secondary);
-  }
-
-  .report-date {
-    color: var(--color-text-tertiary);
-    font-size: var(--text-xs);
-  }
-
-  .panel-link {
-    display: block;
-    text-align: center;
-    margin-block-start: var(--space-3);
-    font-size: var(--text-sm);
+  .quick-action-icon {
+    font-size: 24px;
     color: var(--color-primary);
   }
 
-  .quick-actions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
+  .quick-action-label {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-text);
   }
 
   /* Verification requests */
@@ -552,10 +483,6 @@
     background: var(--color-primary-hover);
   }
 
-  .quick-action-btn {
-    text-align: center;
-  }
-
   /* Services */
   .services-section {
     margin-block-end: var(--space-6);
@@ -586,10 +513,6 @@
   }
 
   @media (max-width: 768px) {
-    .dashboard-panels {
-      grid-template-columns: 1fr;
-    }
-
     .stats-grid {
       grid-template-columns: repeat(2, 1fr);
     }
