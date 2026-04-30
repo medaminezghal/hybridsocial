@@ -327,8 +327,30 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
   defp check_database do
     try do
       case Hybridsocial.Repo.query("SELECT 1") do
-        {:ok, _} -> %{status: "up"}
-        {:error, e} -> %{status: "down", error: Exception.message(e)}
+        {:ok, _} ->
+          # Match the shape of check_valkey/check_nats so the dashboard's
+          # service panel can render the same header (version + uptime)
+          # without special-casing the DB. `server_version` is "17.2"
+          # not the long "PostgreSQL 17.2 on …" returned by version();
+          # uptime comes from pg_postmaster_start_time().
+          version =
+            case Hybridsocial.Repo.query("SHOW server_version") do
+              {:ok, %{rows: [[v]]}} -> v |> to_string() |> String.split(" ", parts: 2) |> hd()
+              _ -> "unknown"
+            end
+
+          uptime =
+            case Hybridsocial.Repo.query(
+                   "SELECT EXTRACT(EPOCH FROM (now() - pg_postmaster_start_time()))::bigint"
+                 ) do
+              {:ok, %{rows: [[s]]}} when is_integer(s) -> s
+              _ -> 0
+            end
+
+          %{status: "up", version: version, uptime_seconds: uptime}
+
+        {:error, e} ->
+          %{status: "down", error: Exception.message(e)}
       end
     rescue
       e -> %{status: "down", error: Exception.message(e)}
