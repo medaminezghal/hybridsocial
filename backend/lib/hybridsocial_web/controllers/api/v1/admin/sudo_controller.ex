@@ -10,11 +10,17 @@ defmodule HybridsocialWeb.Api.V1.Admin.SudoController do
   use HybridsocialWeb, :controller
 
   alias Hybridsocial.{Accounts, Auth, Moderation}
+  alias Hybridsocial.Auth.Webauthn
 
   @doc """
   POST /api/v1/admin/sudo
-  Body: `{password, code}` — re-verifies the caller's password and TOTP.
-  On success, stamps `sudo_until = now + TTL` on the current token.
+  Body: `{password, code}` (TOTP) or `{password, webauthn: assertion}`
+  (security key). Re-verifies the caller's password plus *one* second
+  factor — either is accepted, matching the RequireAdmin gate. On
+  success, stamps `sudo_until = now + TTL` on the current token.
+
+  GET /api/v1/admin/sudo/webauthn_challenge issues the assertion
+  challenge the security-key flow uses.
   """
   def grant(conn, params) do
     identity = conn.assigns.current_identity
@@ -22,17 +28,18 @@ defmodule HybridsocialWeb.Api.V1.Admin.SudoController do
 
     password = params["password"]
     code = params["code"] || params["otp_code"]
+    webauthn = params["webauthn"]
 
     cond do
       not is_binary(password) or password == "" ->
         bad_request(conn, "sudo.password_required")
 
-      not is_binary(code) or code == "" ->
+      missing_second_factor?(code, webauthn) ->
         bad_request(conn, "sudo.otp_required")
 
       true ->
         with {:ok, _user} <- verify_password(identity, password),
-             {:ok, _user} <- Accounts.verify_2fa(identity.id, code),
+             {:ok, _user} <- verify_second_factor(identity.id, code, webauthn),
              {:ok, until} <- Auth.grant_sudo(token) do
           Moderation.log(
             identity.id,
@@ -115,6 +122,46 @@ defmodule HybridsocialWeb.Api.V1.Admin.SudoController do
     )
 
     conn |> put_status(:ok) |> json(%{status: "ok"})
+  end
+
+  @doc """
+  GET /api/v1/admin/sudo/webauthn_challenge
+
+  Issues an assertion challenge so a user with a registered security
+  key can clear the sudo step-up without entering a TOTP code. The
+  signed assertion comes back via the `webauthn` field on POST
+  /api/v1/admin/sudo.
+  """
+  def webauthn_challenge(conn, _params) do
+    identity = conn.assigns.current_identity
+    challenge = Webauthn.authentication_challenge(identity.id)
+    json(conn, challenge)
+  end
+
+  defp missing_second_factor?(code, webauthn) do
+    cond do
+      is_binary(code) and code != "" -> false
+      is_map(webauthn) -> false
+      true -> true
+    end
+  end
+
+  defp verify_second_factor(identity_id, code, webauthn) do
+    cond do
+      is_map(webauthn) ->
+        case Webauthn.verify_authentication(identity_id, webauthn) do
+          {:ok, _cred} -> {:ok, :webauthn}
+          {:error, :challenge_expired} -> {:error, :invalid_code}
+          {:error, :credential_not_found} -> {:error, :invalid_code}
+          {:error, _} -> {:error, :invalid_code}
+        end
+
+      is_binary(code) and code != "" ->
+        Accounts.verify_2fa(identity_id, code)
+
+      true ->
+        {:error, :invalid_code}
+    end
   end
 
   defp verify_password(identity, password) do

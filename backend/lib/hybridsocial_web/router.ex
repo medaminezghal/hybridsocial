@@ -644,6 +644,9 @@ defmodule HybridsocialWeb.Router do
     post "/sudo", Admin.SudoController, :grant
     get "/sudo", Admin.SudoController, :status
     delete "/sudo", Admin.SudoController, :revoke
+    # Issues a WebAuthn assertion challenge so a security-key holder can
+    # clear the sudo gate without a TOTP prompt.
+    get "/sudo/webauthn_challenge", Admin.SudoController, :webauthn_challenge
   end
 
   # Per-user moderation actions — auth + staff, NOT sudo-gated.

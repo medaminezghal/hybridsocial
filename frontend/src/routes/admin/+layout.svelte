@@ -18,7 +18,14 @@
   // Admin sessions are high-value — the backend enforces the same rule,
   // but gating the UI up-front avoids rendering a panel whose every
   // request would 403 with admin.otp_required.
-  let needsOtp = $derived(!!user && !user.two_factor_enabled);
+  // Either a TOTP authenticator or a registered security key satisfies
+  // the staff 2FA gate (matches RequireAdmin on the backend) — so a
+  // user with a passkey shouldn't see the "enable 2FA" wall.
+  let needsOtp = $derived(
+    !!user &&
+      user.two_factor_enabled !== true &&
+      (user as { security_keys_enabled?: boolean }).security_keys_enabled !== true,
+  );
   let sudoOk = $derived(isSudoValid($sudoExpiresAt));
 
   let expiryTimer: ReturnType<typeof setInterval> | null = null;

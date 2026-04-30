@@ -18,6 +18,7 @@ defmodule HybridsocialWeb.Plugs.RequireAdmin do
 
   alias Hybridsocial.Accounts
   alias Hybridsocial.Auth.RBAC
+  alias Hybridsocial.Auth.Webauthn
 
   def init(opts), do: opts
 
@@ -28,11 +29,12 @@ defmodule HybridsocialWeb.Plugs.RequireAdmin do
           not RBAC.staff?(identity_id) ->
             deny(conn, "auth.forbidden", "Admin access required")
 
-          not otp_enabled?(identity_id) ->
+          not second_factor_enabled?(identity_id) ->
             deny(
               conn,
               "admin.otp_required",
-              "Two-factor authentication must be enabled to use the admin panel."
+              "Two-factor authentication must be enabled to use the admin panel. " <>
+                "Either an authenticator app (TOTP) or a security key (WebAuthn) satisfies this."
             )
 
           true ->
@@ -42,6 +44,13 @@ defmodule HybridsocialWeb.Plugs.RequireAdmin do
       _ ->
         deny(conn, "auth.forbidden", "Admin access required")
     end
+  end
+
+  # A staff account satisfies the 2FA requirement with either an
+  # authenticator app (TOTP) or at least one registered security key
+  # (WebAuthn). Both are phishing-resistant enough for the admin gate.
+  defp second_factor_enabled?(identity_id) do
+    otp_enabled?(identity_id) or Webauthn.has_credentials?(identity_id)
   end
 
   defp otp_enabled?(identity_id) do

@@ -267,6 +267,10 @@ defmodule HybridsocialWeb.Api.V1.AuthController do
       email: identity.user && identity.user.email,
       confirmed: identity.user && identity.user.confirmed_at != nil,
       two_factor_enabled: identity.user && identity.user.otp_enabled,
+      # Either an authenticator app or a registered security key
+      # satisfies the staff 2FA gate, so the frontend banner / sudo
+      # gate need both signals to decide what to ask for.
+      security_keys_enabled: Hybridsocial.Auth.Webauthn.has_credentials?(identity.id),
       locale: identity.user && identity.user.locale,
       default_visibility: identity.user && identity.user.default_visibility,
       preferences: (identity.user && identity.user.preferences) || %{}

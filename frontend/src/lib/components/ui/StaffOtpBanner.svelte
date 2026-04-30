@@ -8,10 +8,16 @@
   // role. Same trigger here so a staff member finds out they need to
   // turn 2FA on before they hit a 403, instead of after.
 
-  function shouldShow(user: { roles?: string[]; two_factor_enabled?: boolean } | null): boolean {
+  function shouldShow(
+    user: { roles?: string[]; two_factor_enabled?: boolean; security_keys_enabled?: boolean } | null,
+  ): boolean {
     if (!user) return false;
     const isStaff = (user.roles?.length ?? 0) > 0;
-    return isStaff && user.two_factor_enabled !== true;
+    // Either an authenticator app (TOTP) or a registered security key
+    // satisfies the staff 2FA requirement, so don't nag a user who's
+    // already covered by a passkey.
+    const hasSecondFactor = user.two_factor_enabled === true || user.security_keys_enabled === true;
+    return isStaff && !hasSecondFactor;
   }
 
   // Per-session dismiss: clicking X stops it for the rest of the tab,
