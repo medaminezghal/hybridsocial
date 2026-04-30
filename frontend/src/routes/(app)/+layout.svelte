@@ -3,6 +3,7 @@
   import { browser } from '$app/environment';
   import AppLayout from '$lib/components/layout/AppLayout.svelte';
   import ConnectionBanner from '$lib/components/ui/ConnectionBanner.svelte';
+  import StaffOtpBanner from '$lib/components/ui/StaffOtpBanner.svelte';
   import OnboardingModal from '$lib/components/ui/OnboardingModal.svelte';
   import { authStore } from '$lib/stores/auth.js';
   import { connectNotificationStream, disconnectNotificationStream } from '$lib/stores/notifications.js';
@@ -90,6 +91,10 @@
        to /login. -->
 {:else}
   <ConnectionBanner />
+  <!-- Reminds staff who haven't enabled 2FA that the admin panel is
+       locked behind it. Self-hides once 2FA is on or for non-staff
+       accounts; dismissible per session. -->
+  <StaffOtpBanner />
   <AppLayout>
     {@render children()}
   </AppLayout>
