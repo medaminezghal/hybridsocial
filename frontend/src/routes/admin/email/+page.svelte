@@ -88,6 +88,7 @@
 
   <Tabs {tabs} bind:active={activeTab}>
     {#if activeTab === 'server'}
+      <div class="server-tab">
       {#if loading}
         <div class="card">
           {#each Array(4) as _}
@@ -156,6 +157,7 @@
       </form>
     </section>
       {/if}
+      </div>
     {:else if activeTab === 'templates'}
       <EmailTemplatesPanel />
     {/if}
@@ -163,7 +165,15 @@
 </div>
 
 <style>
+  /* Drop the page-level max-width so the Templates tab (which wants
+     to lay out a 240/1fr/420 grid) can actually use the column. The
+     Server tab's narrow form re-applies a max-width on its own
+     section so it doesn't stretch into a single 1400px-wide row. */
   .email-page {
+    width: 100%;
+  }
+
+  .server-tab {
     max-width: 700px;
   }
 
