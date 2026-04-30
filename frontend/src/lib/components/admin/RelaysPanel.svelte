@@ -27,11 +27,12 @@
       relays = [...relays, relay];
       newInboxUrl = '';
       addToast('Relay added', 'success');
-    } catch (e: any) {
-      if (e?.body?.error === 'relay.already_subscribed') {
-        addToast(e.body.message || 'This relay is already in your list.', 'warning');
+    } catch (e: unknown) {
+      const apiErr = e as { body?: { error?: string; message?: string; error_description?: string } };
+      if (apiErr?.body?.error === 'relay.already_subscribed') {
+        addToast(apiErr.body.message || 'This relay is already in your list.', 'warning');
       } else {
-        const msg = e?.body?.message || e?.body?.error_description || 'Failed to add relay';
+        const msg = apiErr?.body?.message || apiErr?.body?.error_description || 'Failed to add relay';
         addToast(msg, 'error');
       }
     } finally {
@@ -68,16 +69,11 @@
   }
 </script>
 
-<svelte:head>
-  <title>Relays - Admin</title>
-</svelte:head>
-
-<div class="relays-page">
-  <h1 class="page-title">Relays</h1>
-  <p class="page-desc">Relays are servers that help distribute content across the fediverse.</p>
+<div class="relays-panel">
+  <p class="panel-desc">Relays are servers that help distribute content across the fediverse.</p>
 
   <section class="card add-section">
-    <h2 class="section-title">Add Relay</h2>
+    <h2 class="section-title">Add relay</h2>
     <p class="add-hint">
       Paste the relay URL. Either flavor works — Mastodon-style
       (<code>…/inbox</code>) or Pleroma-style (<code>…/actor</code>).
@@ -92,13 +88,13 @@
         required
       />
       <button class="btn btn-primary" type="submit" disabled={adding}>
-        {adding ? 'Adding...' : 'Add Relay'}
+        {adding ? 'Adding...' : 'Add relay'}
       </button>
     </form>
   </section>
 
   <section class="card">
-    <h2 class="section-title">Active Relays</h2>
+    <h2 class="section-title">Active relays</h2>
 
     {#if loading}
       {#each Array(3) as _}
@@ -136,20 +132,14 @@
 </div>
 
 <style>
-  .relays-page {
+  .relays-panel {
     max-width: 800px;
   }
 
-  .page-title {
-    font-size: var(--text-2xl);
-    font-weight: 700;
-    margin-block-end: var(--space-2);
-  }
-
-  .page-desc {
+  .panel-desc {
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
-    margin-block-end: var(--space-6);
+    margin-block-end: var(--space-4);
   }
 
   .section-title {
@@ -215,21 +205,10 @@
     text-transform: capitalize;
   }
 
-  .status-accepted {
-    background: var(--color-success-soft);
-    color: #166534;
-  }
-
-  .status-pending {
-    background: var(--color-warning-soft);
-    color: #92400e;
-  }
-
+  .status-accepted { background: var(--color-success-soft); color: #166534; }
+  .status-pending  { background: var(--color-warning-soft); color: #92400e; }
   .status-rejected,
-  .status-failed {
-    background: var(--color-danger-soft);
-    color: #991b1b;
-  }
+  .status-failed   { background: var(--color-danger-soft); color: #991b1b; }
 
   .relay-style {
     font-size: var(--text-xs);

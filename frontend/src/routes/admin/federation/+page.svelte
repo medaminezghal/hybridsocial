@@ -10,12 +10,14 @@
     getDeliveryQueueStats, retryDeliveryQueue,
     purgeInstancePreview, purgeInstanceContent
   } from '$lib/api/admin.js';
+  import RelaysPanel from '$lib/components/admin/RelaysPanel.svelte';
   import type { KnownInstance, FederationPolicy, DeliveryQueueStats, InstancePurgePreview } from '$lib/api/types.js';
 
   const tabs = [
     { id: 'instances', label: 'Known Instances' },
     { id: 'policies', label: 'Policies' },
-    { id: 'delivery', label: 'Delivery Queue' }
+    { id: 'delivery', label: 'Delivery Queue' },
+    { id: 'relays', label: 'Relays' }
   ];
 
   let activeTab = $state('instances');
@@ -369,6 +371,12 @@
           </button>
         </div>
       {/if}
+
+    {:else if activeTab === 'relays'}
+      <!-- Lifted from the standalone /admin/relays page so all
+           federation surfaces (peers, policies, queue, relays) live
+           in one place. The panel manages its own load state. -->
+      <RelaysPanel />
     {/if}
   </Tabs>
 </div>
