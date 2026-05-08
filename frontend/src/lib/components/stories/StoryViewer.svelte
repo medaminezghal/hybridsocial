@@ -398,7 +398,13 @@
   .story-frame {
     position: relative;
     width: 100%;
-    max-width: 420px;
+    /* Scale the frame off the viewport height so wide desktop windows
+       don't waste 60% of the screen on letterboxing. The clamp keeps
+       a sensible portrait shape (~9:16 derives from `90vh * 0.5625`)
+       while capping at 560 px so a 4K display doesn't render an
+       absurdly large card. The previous 420 px ceiling left huge
+       black bars on anything wider than a phone. */
+    max-width: clamp(320px, calc(90vh * 0.5625), 560px);
     height: 100%;
     max-height: 90vh;
     background: #000;
@@ -643,7 +649,9 @@
 
   .viewers-sheet {
     width: 100%;
-    max-width: 420px;
+    /* Mirror .story-frame's responsive cap so the sheet aligns with
+       the frame above it when desktop sizing kicks in. */
+    max-width: clamp(320px, calc(90vh * 0.5625), 560px);
     background: var(--color-surface);
     border-radius: 16px 16px 0 0;
     max-height: 70vh;
