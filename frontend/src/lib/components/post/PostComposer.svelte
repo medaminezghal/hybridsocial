@@ -9,6 +9,7 @@
   import { currentUser, authStore } from '$lib/stores/auth.js';
   import { preferencesStore } from '$lib/stores/preferences.js';
   import EmojiPicker from './EmojiPicker.svelte';
+  import ImageLightbox from '$lib/components/ui/ImageLightbox.svelte';
   import { markSeen } from '$lib/utils/seen-posts.js';
 
   type ComposerVisibility = 'public' | 'followers' | 'direct';
@@ -726,6 +727,68 @@
     uploadedMedia = uploadedMedia.filter((m) => m.id !== id);
   }
 
+  // --- Media preview lightbox ---
+  // The composer used to be the only place a user could see their
+  // attachment as a tiny 100-px thumbnail with no way to verify the
+  // crop / orientation / blurhash matched what they meant to upload.
+  // Tapping any image / video tile opens a fullscreen preview built
+  // off the same ImageLightbox the timeline uses, with previous /
+  // next nav across all attachments.
+  let lightboxOpen = $state(false);
+  let lightboxIndex = $state(0);
+
+  function isImageMedia(m: MediaAttachment): boolean {
+    const ct = (m as unknown as { content_type?: string }).content_type ?? '';
+    return m.type === 'image' || m.type === 'gifv' || ct.startsWith('image/');
+  }
+
+  function isVideoMedia(m: MediaAttachment): boolean {
+    const ct = (m as unknown as { content_type?: string }).content_type ?? '';
+    return m.type === 'video' || ct.startsWith('video/');
+  }
+
+  // Slides for the lightbox: images use the original / preview url
+  // straight; videos render inside a `<video>` thumbnail with a poster
+  // — the lightbox itself is image-only so we let it show the still
+  // and clicking through plays the file in the browser's native
+  // viewer (open in new tab) for now. The slides array is built off
+  // `uploadedMedia` directly so the index stays aligned with the
+  // tile the user clicked.
+  let lightboxSlides = $derived(
+    uploadedMedia
+      .filter((m) => isImageMedia(m))
+      .map((m) => ({
+        id: m.id,
+        url: m.url || m.preview_url || '',
+        alt: m.description ?? null,
+      })),
+  );
+
+  function openMediaPreview(media: MediaAttachment, e: MouseEvent | KeyboardEvent) {
+    // Stop click bubbling so the parent media-preview-item buttons
+    // (Remove, ALT) behave as before — only the cover area opens
+    // the lightbox.
+    e.stopPropagation();
+
+    if (isImageMedia(media)) {
+      const idx = lightboxSlides.findIndex((s) => s.id === media.id);
+      lightboxIndex = idx >= 0 ? idx : 0;
+      lightboxOpen = true;
+      return;
+    }
+
+    if (isVideoMedia(media)) {
+      // Videos: hand off to a transient `<video controls>` overlay
+      // rather than threading video support through the image
+      // lightbox (which has no playback chrome).
+      videoPreviewSrc = media.url || media.preview_url || '';
+      videoPreviewOpen = !!videoPreviewSrc;
+    }
+  }
+
+  let videoPreviewOpen = $state(false);
+  let videoPreviewSrc = $state('');
+
   // Poll helpers
   function addPollOption() {
     if (pollOptions.length < maxPollOptions) {
@@ -1380,10 +1443,24 @@
           {@const src = media.preview_url || media.url}
           <div class="media-preview-item">
             {#if kind === 'image' && src}
-              <img src={src} alt={media.description || ''} class="media-preview-img" />
+              <button
+                type="button"
+                class="media-preview-trigger"
+                aria-label="Preview image"
+                onclick={(e) => openMediaPreview(media, e)}
+              >
+                <img src={src} alt={media.description || ''} class="media-preview-img" />
+              </button>
             {:else if kind === 'video'}
-              <video src={src} class="media-preview-img" muted preload="metadata"></video>
-              <span class="material-symbols-outlined media-preview-video-overlay">play_arrow</span>
+              <button
+                type="button"
+                class="media-preview-trigger"
+                aria-label="Preview video"
+                onclick={(e) => openMediaPreview(media, e)}
+              >
+                <video src={src} class="media-preview-img" muted preload="metadata"></video>
+                <span class="material-symbols-outlined media-preview-video-overlay">play_arrow</span>
+              </button>
             {:else if kind === 'audio'}
               <span class="material-symbols-outlined media-preview-icon">graphic_eq</span>
             {:else}
@@ -1738,6 +1815,54 @@
         <button type="button" class="btn btn-danger" onclick={confirmDiscard}>Discard &amp; close</button>
       </div>
     </div>
+  </div>
+{/if}
+
+{#if lightboxOpen && lightboxSlides.length > 0}
+  <ImageLightbox
+    images={lightboxSlides}
+    bind:index={lightboxIndex}
+    onclose={() => (lightboxOpen = false)}
+  />
+{/if}
+
+{#if videoPreviewOpen && videoPreviewSrc}
+  <!-- Lightweight transient preview for video attachments. Closes
+       on backdrop click or Escape; the inner video has native
+       controls so the user can seek / pause without us
+       reimplementing chrome. -->
+  <div
+    class="video-preview-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Video preview"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) {
+        videoPreviewOpen = false;
+        videoPreviewSrc = '';
+      }
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') {
+        videoPreviewOpen = false;
+        videoPreviewSrc = '';
+      }
+    }}
+    tabindex="-1"
+  >
+    <button
+      type="button"
+      class="video-preview-close"
+      aria-label="Close preview"
+      onclick={() => {
+        videoPreviewOpen = false;
+        videoPreviewSrc = '';
+      }}
+    >
+      <span class="material-symbols-outlined">close</span>
+    </button>
+    <!-- svelte-ignore a11y_media_has_caption -->
+    <video src={videoPreviewSrc} class="video-preview-player" controls autoplay></video>
   </div>
 {/if}
 
@@ -2225,6 +2350,29 @@
     object-fit: cover;
   }
 
+  /* Click target wrapping the image / video thumbnail. Resets the
+     button defaults so the cover continues to fill the tile flush
+     with the rounded corners; cursor + focus ring make it
+     discoverable. */
+  .media-preview-trigger {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+    border: none;
+    background: transparent;
+    cursor: zoom-in;
+    display: block;
+    overflow: hidden;
+  }
+
+  .media-preview-trigger:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+
   .media-preview-video-overlay {
     position: absolute;
     inset: 0;
@@ -2351,6 +2499,9 @@
     align-items: center;
     justify-content: center;
     padding: 0;
+    /* Stack above the cover-area click target so taps on the X
+       trigger remove instead of the lightbox preview. */
+    z-index: 2;
   }
 
   .media-preview-remove:hover {
@@ -2851,7 +3002,9 @@
     font-weight: 700;
     letter-spacing: 0.05em;
     cursor: pointer;
-    z-index: 1;
+    /* Layer above .media-preview-trigger so the ALT pill stays
+       clickable instead of the cover swallowing the tap. */
+    z-index: 2;
   }
 
   .media-preview-alt:hover {
@@ -2864,6 +3017,47 @@
 
   .media-preview-alt-set:hover {
     background: var(--color-primary-hover);
+  }
+
+  /* Video preview overlay — sibling to ImageLightbox at the same
+     z-index since they're mutually exclusive. */
+  .video-preview-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    animation: alt-fade 0.2s ease;
+  }
+
+  .video-preview-player {
+    max-width: min(960px, 100%);
+    max-height: 90vh;
+    border-radius: var(--radius-lg);
+    background: #000;
+  }
+
+  .video-preview-close {
+    position: absolute;
+    top: var(--space-4);
+    inset-inline-end: var(--space-4);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .video-preview-close:hover {
+    background: rgba(0, 0, 0, 0.85);
   }
 
   /* Alt-text + discard-confirm overlays */
