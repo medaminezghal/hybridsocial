@@ -106,7 +106,18 @@
 
   /* Mobile: no sidebars, bottom tabs */
   @media (max-width: 768px) {
-    .app-layout {
+    /* Repeat every variant so the single-column grid wins over the
+       higher-specificity `.app-layout.no-right-sidebar` /
+       `.no-left-sidebar` rules above. Without this, on routes that
+       hide a sidebar (e.g. /messages, /admin) the tablet
+       `64px minmax(0, 1fr)` grid kept winning at mobile widths,
+       Sidebar was `display: none` so <main> auto-flowed into
+       column 1 (64 px wide) and every page inside collapsed to a
+       64-px sliver against the left edge. */
+    .app-layout,
+    .app-layout.no-right-sidebar,
+    .app-layout.no-left-sidebar,
+    .app-layout.no-left-sidebar.no-right-sidebar {
       grid-template-columns: 1fr;
       gap: 0;
       padding-inline: var(--space-3);
