@@ -539,37 +539,63 @@ defmodule HybridsocialWeb.Api.V1.StatusController do
   # POST /api/v1/statuses/:id/pin
   def pin(conn, %{"id" => id}) do
     identity = conn.assigns.current_identity
-    limits = TierLimits.limits_for(identity)
-    max_pins = limits[:pinned_posts] || 1
 
-    # Check current pin count
-    pinned_count = Posts.pinned_count(identity.id)
+    case Posts.get_post(id) do
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "status.not_found"})
 
-    if pinned_count >= max_pins do
-      conn
-      |> put_status(:unprocessable_entity)
-      |> json(%{error: "limits.max_pinned_posts", max: max_pins})
-    else
-      case Posts.pin_post(id, identity.id) do
-        {:ok, post} ->
-          post = Hybridsocial.Repo.preload(post, [:identity, :quote])
+      %{deleted_at: deleted_at} when not is_nil(deleted_at) ->
+        conn |> put_status(:not_found) |> json(%{error: "status.not_found"})
 
+      post ->
+        scope = Posts.pin_scope(post)
+        max_pins = pin_limit_for(scope, identity)
+
+        if Posts.pinned_count(scope) >= max_pins do
           conn
-          |> put_status(:ok)
-          |> json(serialize_post(conn, post))
+          |> put_status(:unprocessable_entity)
+          |> json(%{error: "limits.max_pinned_posts", max: max_pins, scope: scope_name(scope)})
+        else
+          case Posts.pin_post(id, identity.id) do
+            {:ok, pinned} ->
+              pinned = Hybridsocial.Repo.preload(pinned, [:identity, :quote])
 
-        {:error, :not_found} ->
-          conn
-          |> put_status(:not_found)
-          |> json(%{error: "status.not_found"})
+              conn
+              |> put_status(:ok)
+              |> json(serialize_post(conn, pinned))
 
-        {:error, :forbidden} ->
-          conn
-          |> put_status(:forbidden)
-          |> json(%{error: "status.forbidden"})
-      end
+            {:error, :not_found} ->
+              conn |> put_status(:not_found) |> json(%{error: "status.not_found"})
+
+            {:error, :forbidden} ->
+              conn |> put_status(:forbidden) |> json(%{error: "status.forbidden"})
+          end
+        end
     end
   end
+
+  # Per-scope pin limits.
+  #   * profile → user's tier allowance (`limits[:pinned_posts]`)
+  #   * group / page → instance config (`max_pinned_in_group` /
+  #     `max_pinned_on_page`, default 3 each). Hard-coding a default
+  #     keeps the feature usable on instances that haven't surfaced
+  #     these knobs in the admin UI yet.
+  defp pin_limit_for({:profile, _}, identity) do
+    limits = TierLimits.limits_for(identity)
+    limits[:pinned_posts] || 1
+  end
+
+  defp pin_limit_for({:group, _}, _identity) do
+    Hybridsocial.Config.get("max_pinned_in_group", 3)
+  end
+
+  defp pin_limit_for({:page, _}, _identity) do
+    Hybridsocial.Config.get("max_pinned_on_page", 3)
+  end
+
+  defp scope_name({:profile, _}), do: "profile"
+  defp scope_name({:group, _}), do: "group"
+  defp scope_name({:page, _}), do: "page"
 
   # DELETE /api/v1/statuses/:id/pin
   def unpin(conn, %{"id" => id}) do

@@ -377,7 +377,10 @@ defmodule Hybridsocial.Feeds do
             |> where([p], p.group_id == ^group_id)
             |> where([p], is_nil(p.deleted_at))
             |> apply_cursor_filters(opts)
-            |> order_by([p], desc: p.inserted_at)
+            # Pinned posts surface at the top of the group timeline.
+            # `desc: is_pinned` (boolean) puts true ahead of false; the
+            # newest-first secondary sort kicks in within each group.
+            |> order_by([p], desc: p.is_pinned, desc: p.inserted_at)
             |> limit(^limit)
             |> preload([:identity, :quote])
 
@@ -532,7 +535,15 @@ defmodule Hybridsocial.Feeds do
   defp maybe_only_media(query, true), do: where(query, [p], p.post_type == "media")
 
   defp maybe_only_pinned(query, false), do: query
-  defp maybe_only_pinned(query, true), do: where(query, [p], p.is_pinned == true)
+
+  # Profile pin filter: a post pinned in a group / on a page also has
+  # `is_pinned = true`, but it lives in that scope's timeline, not on
+  # the author's profile. Excluding `group_id`/`page_id` here keeps
+  # group/page pins from leaking onto the author's profile pinned
+  # row.
+  defp maybe_only_pinned(query, true) do
+    where(query, [p], p.is_pinned == true and is_nil(p.group_id) and is_nil(p.page_id))
+  end
 
   defp apply_account_visibility(query, identity_id, viewer_id)
        when identity_id == viewer_id and not is_nil(viewer_id) do

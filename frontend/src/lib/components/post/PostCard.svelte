@@ -647,7 +647,12 @@
     <!-- Content column -->
     <div class="post-content-col">
       {#if post.is_pinned}
-        <div class="post-pinned-indicator" title="Pinned to profile">
+        {@const pinTitle = post.group
+          ? `Pinned in ${post.group.name}`
+          : post.page
+            ? `Pinned on ${post.page.name}`
+            : 'Pinned to profile'}
+        <div class="post-pinned-indicator" title={pinTitle}>
           <span class="material-symbols-outlined pinned-icon" aria-hidden="true">push_pin</span>
           <span>Pinned</span>
         </div>

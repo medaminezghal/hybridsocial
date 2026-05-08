@@ -1360,25 +1360,115 @@ defmodule Hybridsocial.Social.Posts do
     |> Enum.sort_by(fn p -> Enum.find_index(post_ids, &(&1 == p.id)) end)
   end
 
-  def pinned_count(identity_id) do
+  @doc """
+  Counts posts pinned to a given scope.
+
+      pinned_count({:profile, identity_id}) — profile-scoped pins for the author.
+                                              Excludes group/page posts so a
+                                              group/page pin doesn't eat the
+                                              author's tier allowance.
+      pinned_count({:group,   group_id})    — pinned posts in the group.
+      pinned_count({:page,    page_id})     — pinned posts on the page.
+
+  Legacy single-arg form (`pinned_count(identity_id)`) keeps the old
+  profile-only semantics for callers that haven't migrated.
+  """
+  def pinned_count({:profile, identity_id}) do
     Post
-    |> where([p], p.identity_id == ^identity_id and p.is_pinned == true and is_nil(p.deleted_at))
+    |> where(
+      [p],
+      p.identity_id == ^identity_id and p.is_pinned == true and is_nil(p.deleted_at) and
+        is_nil(p.group_id) and is_nil(p.page_id)
+    )
     |> Repo.aggregate(:count)
   end
 
-  def pin_post(post_id, identity_id) do
-    with {:ok, post} <- get_owned_post(post_id, identity_id) do
-      post
-      |> Ecto.Changeset.change(is_pinned: true)
-      |> Repo.update()
+  def pinned_count({:group, group_id}) do
+    Post
+    |> where(
+      [p],
+      p.group_id == ^group_id and p.is_pinned == true and is_nil(p.deleted_at)
+    )
+    |> Repo.aggregate(:count)
+  end
+
+  def pinned_count({:page, page_id}) do
+    Post
+    |> where(
+      [p],
+      p.page_id == ^page_id and p.is_pinned == true and is_nil(p.deleted_at)
+    )
+    |> Repo.aggregate(:count)
+  end
+
+  def pinned_count(identity_id) when is_binary(identity_id) do
+    pinned_count({:profile, identity_id})
+  end
+
+  @doc """
+  Returns the pin scope for a post — `{:group, id}`, `{:page, id}`, or
+  `{:profile, identity_id}`. Used to route pin-permission and
+  pin-count checks; mirrors the precedence the timelines use when
+  surfacing the post (group > page > profile).
+  """
+  def pin_scope(%Post{group_id: gid}) when is_binary(gid), do: {:group, gid}
+  def pin_scope(%Post{page_id: pid}) when is_binary(pid), do: {:page, pid}
+  def pin_scope(%Post{identity_id: iid}), do: {:profile, iid}
+
+  @doc """
+  Pins a post. Permission depends on where the post lives:
+
+    * group post → caller must be group :owner or :admin
+    * page post  → caller must pass `Pages.can_edit?/2`
+                   (parent owner, org owner, admin, or editor)
+    * profile    → caller must be the post author
+
+  Returns `{:ok, post}` on success, `{:error, :not_found}` if missing,
+  `{:error, :forbidden}` on permission failure.
+  """
+  def pin_post(post_id, actor_identity_id) do
+    set_pinned(post_id, actor_identity_id, true)
+  end
+
+  def unpin_post(post_id, actor_identity_id) do
+    set_pinned(post_id, actor_identity_id, false)
+  end
+
+  defp set_pinned(post_id, actor_identity_id, value) do
+    case fetch_post(post_id) do
+      nil ->
+        {:error, :not_found}
+
+      %Post{} = post ->
+        if can_pin?(post, actor_identity_id) do
+          post
+          |> Ecto.Changeset.change(is_pinned: value)
+          |> Repo.update()
+        else
+          {:error, :forbidden}
+        end
     end
   end
 
-  def unpin_post(post_id, identity_id) do
-    with {:ok, post} <- get_owned_post(post_id, identity_id) do
-      post
-      |> Ecto.Changeset.change(is_pinned: false)
-      |> Repo.update()
+  defp fetch_post(post_id) do
+    Post
+    |> where([p], p.id == ^post_id and is_nil(p.deleted_at))
+    |> Repo.one()
+  end
+
+  # Authorization for pin/unpin. Intentionally not exposed as a public
+  # helper — callers should go through `pin_post/2` so the scope
+  # semantics stay in one place.
+  defp can_pin?(%Post{} = post, actor_identity_id) do
+    case pin_scope(post) do
+      {:group, group_id} ->
+        Hybridsocial.Groups.member_role(group_id, actor_identity_id) in [:owner, :admin]
+
+      {:page, page_id} ->
+        Hybridsocial.Pages.can_edit?(page_id, actor_identity_id)
+
+      {:profile, owner_id} ->
+        owner_id == actor_identity_id
     end
   end
 

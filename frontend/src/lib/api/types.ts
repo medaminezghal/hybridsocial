@@ -164,6 +164,18 @@ export interface Post {
   reactions: PostReaction[];
   poll: Poll | null;
   media_attachments: MediaAttachment[];
+  /**
+   * When the post is anchored to a group, a small summary so the UI
+   * can show the group chip + drive scope-aware behavior (e.g. the
+   * pin action treating the post as a group pin instead of a profile
+   * pin). Null when not in a group.
+   */
+  group?: { id: string; name: string; avatar_url?: string | null; visibility?: string } | null;
+  /**
+   * Like `group`, but for organization pages. The `id` is the page's
+   * Identity row id; pages don't have a separate Page schema.
+   */
+  page?: { id: string; name: string; avatar_url?: string | null } | null;
   tombstone?: { reason: string };
 }
 

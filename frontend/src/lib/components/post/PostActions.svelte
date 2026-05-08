@@ -472,23 +472,43 @@
           detail: { id: post.id, pinned: isPinned, post: updated },
         }),
       );
+      // Pin scope is whichever container the post lives in: a
+      // group anchor makes it a group pin, a page anchor a page pin,
+      // otherwise it's a profile pin. Match the toast wording so a
+      // group admin pinning someone else's post in their group sees
+      // "Pinned in group" rather than the confusing "Pinned to
+      // profile".
+      const scope = post.group ? 'group' : post.page ? 'page' : 'profile';
+      const verb = isPinned ? 'Pinned' : 'Unpinned';
+      const where =
+        scope === 'group'
+          ? isPinned ? 'in group' : 'from group'
+          : scope === 'page'
+            ? isPinned ? 'on page' : 'from page'
+            : isPinned ? 'to profile' : 'from profile';
       window.dispatchEvent(
         new CustomEvent('toast', {
-          detail: {
-            message: isPinned ? 'Pinned to profile' : 'Unpinned from profile',
-            type: 'success',
-          },
+          detail: { message: `${verb} ${where}`, type: 'success' },
         }),
       );
     } catch (err: unknown) {
-      // The pin endpoint returns 422 with `{error: "limits.max_pinned_posts", max}`
-      // when the user is over their tier's pin allowance. Surface the
-      // limit so they know to unpin something first / upgrade.
-      const apiErr = err as { body?: { error?: string; max?: number }; message?: string };
+      // The pin endpoint returns 422 with `{error: "limits.max_pinned_posts", max, scope}`
+      // when the user is over their pin allowance for that scope.
+      // Surface the limit so they know to unpin something first /
+      // upgrade.
+      const apiErr = err as {
+        body?: { error?: string; max?: number; scope?: string };
+        message?: string;
+      };
       let message = 'Could not update pin';
       if (apiErr?.body?.error === 'limits.max_pinned_posts') {
         const max = apiErr.body.max ?? 1;
-        message = `Pin limit reached (${max}). Unpin another post first.`;
+        const scope = apiErr.body.scope ?? 'profile';
+        const noun =
+          scope === 'group' ? 'this group' : scope === 'page' ? 'this page' : 'your profile';
+        message = `Pin limit reached for ${noun} (${max}). Unpin another post first.`;
+      } else if (apiErr?.body?.error === 'status.forbidden') {
+        message = 'You do not have permission to pin posts here.';
       }
       window.dispatchEvent(
         new CustomEvent('toast', { detail: { message, type: 'error' } }),

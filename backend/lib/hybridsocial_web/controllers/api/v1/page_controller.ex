@@ -130,7 +130,8 @@ defmodule HybridsocialWeb.Api.V1.PageController do
           |> where([p], is_nil(p.deleted_at))
           |> where([p], is_nil(p.hidden_at))
           |> maybe_apply_cursor(cursor)
-          |> order_by([p], desc: p.inserted_at)
+          # Pinned posts at the top — same pattern as group_timeline.
+          |> order_by([p], desc: p.is_pinned, desc: p.inserted_at)
           |> limit(^limit)
           |> Hybridsocial.Repo.all()
           # PostSerializer reads `post.identity.show_badge` etc.; an
