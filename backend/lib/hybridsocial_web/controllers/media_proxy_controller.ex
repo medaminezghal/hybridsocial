@@ -202,7 +202,7 @@ defmodule HybridsocialWeb.MediaProxyController do
   defp recv_stream(id, file, tmp_path, state) do
     receive do
       %HTTPoison.AsyncStatus{id: ^id, code: code} when code in 200..299 ->
-        HTTPoison.stream_next(id)
+        :hackney.stream_next(id)
         recv_stream(id, file, tmp_path, %{state | status: code})
 
       %HTTPoison.AsyncStatus{id: ^id, code: code} ->
@@ -211,7 +211,7 @@ defmodule HybridsocialWeb.MediaProxyController do
 
       %HTTPoison.AsyncHeaders{id: ^id, headers: headers} ->
         ct = header_value(headers, "content-type") || state.content_type
-        HTTPoison.stream_next(id)
+        :hackney.stream_next(id)
         recv_stream(id, file, tmp_path, %{state | content_type: ct})
 
       %HTTPoison.AsyncChunk{id: ^id, chunk: chunk} ->
@@ -223,7 +223,7 @@ defmodule HybridsocialWeb.MediaProxyController do
         else
           case IO.binwrite(file, chunk) do
             :ok ->
-              HTTPoison.stream_next(id)
+              :hackney.stream_next(id)
               recv_stream(id, file, tmp_path, %{state | size: new_size})
 
             err ->
@@ -235,7 +235,7 @@ defmodule HybridsocialWeb.MediaProxyController do
       %HTTPoison.AsyncRedirect{id: ^id} ->
         # follow_redirect: true means hackney handles the actual
         # redirect for us — we just keep draining the new request.
-        HTTPoison.stream_next(id)
+        :hackney.stream_next(id)
         recv_stream(id, file, tmp_path, state)
 
       %HTTPoison.AsyncEnd{id: ^id} ->
