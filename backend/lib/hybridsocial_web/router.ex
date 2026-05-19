@@ -226,6 +226,9 @@ defmodule HybridsocialWeb.Router do
     post "/", BotController, :create
     delete "/:id", BotController, :delete
     post "/:id/regenerate", BotController, :regenerate
+    put "/:id/webhook", BotController, :set_webhook
+    delete "/:id/webhook", BotController, :clear_webhook
+    get "/:id/webhook/deliveries", BotController, :list_deliveries
   end
 
   # OAuth app management (authenticated)

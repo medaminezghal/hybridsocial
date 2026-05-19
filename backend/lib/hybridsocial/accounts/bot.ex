@@ -39,6 +39,18 @@ defmodule Hybridsocial.Accounts.Bot do
     |> validate_length(:description, max: 1000)
   end
 
+  @doc """
+  Internal changeset for the webhook URL + signing secret hash.
+  Separate from the public changeset so the secret hash field can
+  never be set from a request body — only by `Bots.Webhooks.set/2`
+  after it has generated and hashed the secret server-side.
+  """
+  def webhook_changeset(bot, attrs) do
+    bot
+    |> cast(attrs, [:webhook_url, :webhook_secret_hash])
+    |> validate_url(:webhook_url)
+  end
+
   defp validate_url(changeset, field) do
     case get_change(changeset, field) do
       nil ->

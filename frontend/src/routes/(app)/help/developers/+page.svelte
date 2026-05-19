@@ -12,6 +12,7 @@
     { id: 'choosing', label: 'Personal app vs bot' },
     { id: 'authentication', label: 'Authentication' },
     { id: 'bots', label: 'Bots in depth' },
+    { id: 'webhooks', label: 'Webhooks' },
     { id: 'endpoints', label: 'API endpoints' },
     { id: 'limits', label: 'Rate limits & scopes' },
     { id: 'examples', label: 'Examples' },
@@ -251,6 +252,146 @@
         <li><code>POST /api/v1/bots/:id/regenerate</code> — burn old credentials and issue new ones in one call. Use after a token leak.</li>
         <li><code>DELETE /api/v1/bots/:id</code> — soft-delete the bot and revoke all its tokens. Restore is admin-only.</li>
       </ul>
+    </section>
+
+    <section id="webhooks" class="docs-section">
+      <h2>Webhooks</h2>
+      <p>
+        Bots can subscribe to events with an outbound webhook. We POST a JSON
+        body to a URL you choose, sign it with HMAC-SHA256, and retry a few times
+        if your endpoint is down. Webhooks are the right move when your bot
+        responds to mentions, replies, or DMs without you having to poll the API.
+      </p>
+
+      <h3>Setting one up</h3>
+      <ol class="numbered-list">
+        <li>
+          Open <a href="/settings/developers">Developer Tools</a>, find your bot,
+          and click the <strong>Webhook</strong> panel.
+        </li>
+        <li>
+          Paste your URL and save. We show you the signing secret <strong>once</strong>
+          — save it now, you won't see it again.
+        </li>
+        <li>
+          When you change the URL or want to rotate the secret, save again and
+          you'll get a fresh secret. Old signatures will stop verifying.
+        </li>
+        <li>
+          <code>Remove</code> clears the URL and cancels any in-flight deliveries.
+        </li>
+      </ol>
+
+      <h3>What events fire</h3>
+      <p>
+        Anything that would have generated an in-app notification for the bot
+        also generates a webhook delivery. Common ones:
+      </p>
+      <ul>
+        <li><code>mention</code> — someone @-mentioned the bot</li>
+        <li><code>reply</code> — someone replied to one of the bot's posts</li>
+        <li><code>reaction</code> — someone reacted to a post</li>
+        <li><code>boost</code> — someone boosted a post</li>
+        <li><code>quote</code> — someone quote-posted</li>
+        <li><code>follow</code> / <code>follow_request</code> — new follower</li>
+        <li><code>poll_ended</code> — a poll the bot ran ended</li>
+        <li>Group / page admin events: <code>group_invite</code>, <code>group_application</code>, <code>page_invite</code></li>
+      </ul>
+
+      <h3>Payload shape</h3>
+      <p>Every request is a JSON object with <code>event</code>, <code>payload</code>, and <code>delivered_at</code>:</p>
+      <pre class="code-block">{`{
+  "event": "mention",
+  "payload": {
+    "event": "mention",
+    "notification_id": "9d4a…",
+    "recipient_id": "<bot identity id>",
+    "actor_id": "<user who mentioned the bot>",
+    "target_type": "post",
+    "target_id": "<post id>",
+    "created_at": "2026-05-20T12:34:56.789Z"
+  },
+  "delivered_at": "2026-05-20T12:34:57.012Z"
+}`}</pre>
+      <p>
+        The bot's webhook only fires for events <em>about the bot</em> — when
+        you build the response, fetch the target object (post, account, etc.)
+        via the regular API to get the full content.
+      </p>
+
+      <h3>Headers we send</h3>
+      <ul>
+        <li><code>content-type: application/json</code></li>
+        <li><code>user-agent: HybridSocial-Webhook/1.0</code></li>
+        <li><code>x-webhook-event</code> — same string as <code>event</code> in the body, for routing without parsing.</li>
+        <li><code>x-webhook-signature: sha256=&lt;hex&gt;</code> — HMAC-SHA256 of the raw request body, hex-encoded.</li>
+        <li><code>x-webhook-delivery</code> — the delivery row's UUID. Idempotent retries reuse the same value.</li>
+      </ul>
+
+      <h3>Verifying the signature</h3>
+      <p>
+        Recompute <code>hmac_sha256(your_signing_secret, raw_body)</code> on
+        receipt and constant-time compare against the value in the
+        <code>x-webhook-signature</code> header (strip the <code>sha256=</code>
+        prefix first). Reject any request whose signature doesn't match — that's
+        either a replay attempt or someone trying to forge events. Example in
+        Node:
+      </p>
+      <pre class="code-block">{`import crypto from 'node:crypto';
+
+const SECRET = process.env.HYBRIDSOCIAL_WEBHOOK_SECRET;
+
+app.post('/webhook', express.raw({ type: '*/*' }), (req, res) => {
+  const sigHeader = req.get('x-webhook-signature') || '';
+  const got = sigHeader.replace(/^sha256=/, '');
+  const expected = crypto
+    .createHmac('sha256', SECRET)
+    .update(req.body)
+    .digest('hex');
+
+  const ok =
+    got.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+  if (!ok) return res.sendStatus(401);
+
+  const body = JSON.parse(req.body);
+  // route on body.event ...
+  res.sendStatus(200);
+});`}</pre>
+      <p>
+        Pass it a raw body buffer (not parsed JSON) so you sign the exact same
+        bytes we did. Most frameworks have a "raw body" middleware for this.
+      </p>
+
+      <h3>Retries and delivery guarantees</h3>
+      <ul>
+        <li>We expect any 2xx status code to mean "delivered" — body content is ignored.</li>
+        <li>
+          On non-2xx or a network error we retry up to <strong>3 times</strong>
+          with backoff: <strong>60 s → 5 min → 30 min</strong>. After the third
+          attempt the delivery is marked <code>failed</code> and not retried.
+        </li>
+        <li>
+          Each retry uses the <strong>same</strong> <code>x-webhook-delivery</code>
+          header value, so you can deduplicate by that.
+        </li>
+        <li>
+          If you toggle the bot to inactive, pending deliveries pause until you
+          re-enable it. Removing the URL outright cancels them.
+        </li>
+        <li>
+          Webhook delivery is <strong>at-least-once</strong>. Treat your handler
+          as idempotent — replays on transient retries do happen.
+        </li>
+      </ul>
+
+      <h3>Auditing recent deliveries</h3>
+      <p>
+        The Webhook panel on Developer Tools shows the last 25 attempts per bot
+        with status, HTTP code, and the error message if any. Use it to confirm
+        signature verification is right end-to-end before you put your bot in
+        front of users.
+      </p>
     </section>
 
     <section id="endpoints" class="docs-section">

@@ -3,6 +3,7 @@
   import { api } from '$lib/api/client.js';
   import { addToast } from '$lib/stores/toast.js';
   import Spinner from '$lib/components/ui/Spinner.svelte';
+  import BotWebhookPanel from '$lib/components/bot/BotWebhookPanel.svelte';
 
   interface BotApp {
     id: string;
@@ -544,6 +545,7 @@
             {:else}
               <p class="no-keys">No API keys. Click the key icon to generate new ones.</p>
             {/if}
+            <BotWebhookPanel botId={bot.id} />
           </div>
         {/each}
       </div>

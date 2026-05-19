@@ -251,6 +251,103 @@ defmodule HybridsocialWeb.Api.V1.BotController do
     end
   end
 
+  @doc "Set / update a bot's outbound webhook URL. Returns the plaintext signing secret once."
+  def set_webhook(conn, %{"id" => bot_id} = params) do
+    identity = conn.assigns.current_identity
+    url = String.trim(params["url"] || "")
+
+    with {:ok, _bot_identity} <- authorize_bot(identity.id, bot_id),
+         true <- url != "" || {:error, :missing_url},
+         {:ok, secret} <- Hybridsocial.Bots.Webhooks.set(bot_id, url) do
+      conn
+      |> put_status(:ok)
+      |> json(%{
+        webhook_url: url,
+        signing_secret: secret,
+        note:
+          "Save this signing secret. It will not be shown again — only its hash is stored server-side."
+      })
+    else
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "bot.not_found"})
+
+      {:error, :forbidden} ->
+        conn |> put_status(:forbidden) |> json(%{error: "bot.not_owner"})
+
+      {:error, :missing_url} ->
+        conn |> put_status(:unprocessable_entity) |> json(%{error: "webhook.url_required"})
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "validation.failed", details: format_errors(changeset)})
+    end
+  end
+
+  @doc "Clear a bot's webhook URL + secret."
+  def clear_webhook(conn, %{"id" => bot_id}) do
+    identity = conn.assigns.current_identity
+
+    with {:ok, _bot_identity} <- authorize_bot(identity.id, bot_id),
+         {:ok, _bot} <- Hybridsocial.Bots.Webhooks.clear(bot_id) do
+      send_resp(conn, :no_content, "")
+    else
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "bot.not_found"})
+
+      {:error, :forbidden} ->
+        conn |> put_status(:forbidden) |> json(%{error: "bot.not_owner"})
+    end
+  end
+
+  @doc "List the bot's recent webhook deliveries (for debugging from the UI)."
+  def list_deliveries(conn, %{"id" => bot_id}) do
+    identity = conn.assigns.current_identity
+
+    case authorize_bot(identity.id, bot_id) do
+      {:ok, _bot_identity} ->
+        deliveries =
+          Hybridsocial.Bots.Webhooks.list_recent_deliveries(bot_id, 25)
+          |> Enum.map(&serialize_delivery/1)
+
+        json(conn, deliveries)
+
+      {:error, :not_found} ->
+        conn |> put_status(:not_found) |> json(%{error: "bot.not_found"})
+
+      {:error, :forbidden} ->
+        conn |> put_status(:forbidden) |> json(%{error: "bot.not_owner"})
+    end
+  end
+
+  defp authorize_bot(parent_id, bot_id) do
+    case Repo.get(Identity, bot_id) do
+      nil ->
+        {:error, :not_found}
+
+      %Identity{type: "bot", parent_identity_id: ^parent_id, deleted_at: nil} = bot_identity ->
+        {:ok, bot_identity}
+
+      _ ->
+        {:error, :forbidden}
+    end
+  end
+
+  defp serialize_delivery(delivery) do
+    %{
+      id: delivery.id,
+      event: delivery.event,
+      status: delivery.status,
+      attempts: delivery.attempts,
+      last_status_code: delivery.last_status_code,
+      last_error: delivery.last_error,
+      webhook_url: delivery.webhook_url,
+      next_attempt_at: delivery.next_attempt_at,
+      delivered_at: delivery.delivered_at,
+      created_at: delivery.inserted_at
+    }
+  end
+
   defp format_errors(%Ecto.Changeset{} = changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
       Regex.replace(~r"%{(\w+)}", msg, fn _, key ->

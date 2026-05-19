@@ -33,6 +33,10 @@ defmodule Hybridsocial.Notifications do
           {:ok, notification} ->
             broadcast_to_user(notification)
             maybe_deliver(notification, attrs, actor_id)
+            # Bot owners can subscribe to events over an outbound
+            # webhook; this is a no-op for human recipients and for
+            # bots without a configured URL.
+            Hybridsocial.Bots.Webhooks.maybe_enqueue_for_notification(notification, attrs)
             {:ok, notification}
 
           error ->
