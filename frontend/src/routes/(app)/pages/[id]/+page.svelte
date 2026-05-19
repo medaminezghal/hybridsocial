@@ -5,6 +5,7 @@
   import { getPage } from '$lib/api/pages.js';
   import PageManageModal from '$lib/components/page/PageManageModal.svelte';
   import ComposerTrigger from '$lib/components/post/ComposerTrigger.svelte';
+  import MediaGrid from '$lib/components/feed/MediaGrid.svelte';
   import { api } from '$lib/api/client.js';
   import { currentUser, isStaffMember } from '$lib/stores/auth.js';
   import type { Post } from '$lib/api/types.js';
@@ -54,6 +55,7 @@
 
   const tabs = [
     { id: 'posts', label: 'Posts' },
+    { id: 'media', label: 'Media' },
     { id: 'about', label: 'About' },
   ];
 
@@ -268,6 +270,12 @@
             hasMore={false}
             viewerContext="page"
             emptyMessage="No posts yet"
+          />
+        {:else if activeTab === 'media'}
+          <MediaGrid
+            {posts}
+            loading={postsLoading}
+            emptyMessage="No photos or videos posted on this page yet"
           />
         {:else if activeTab === 'about'}
           <div class="about-section">

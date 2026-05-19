@@ -10,6 +10,7 @@
   import GroupHeader from '$lib/components/group/GroupHeader.svelte';
   import GroupManageModal from '$lib/components/group/GroupManageModal.svelte';
   import ComposerTrigger from '$lib/components/post/ComposerTrigger.svelte';
+  import MediaGrid from '$lib/components/feed/MediaGrid.svelte';
   import Tabs from '$lib/components/ui/Tabs.svelte';
   import FeedList from '$lib/components/feed/FeedList.svelte';
   import Avatar from '$lib/components/ui/Avatar.svelte';
@@ -41,6 +42,7 @@
 
   const tabs = [
     { id: 'posts', label: 'Posts' },
+    { id: 'media', label: 'Media' },
     { id: 'members', label: 'Members' },
     { id: 'about', label: 'About' }
   ];
@@ -191,6 +193,17 @@
             viewerContext="group"
             emptyMessage="No posts in this group yet"
             onloadmore={loadMorePosts}
+          />
+        {:else if activeTab === 'media'}
+          <!-- Media tab shares the same `posts` list as the Posts tab —
+               we just filter for image / video attachments and render
+               them as a grid. Loading more posts feeds both tabs. -->
+          <MediaGrid
+            {posts}
+            loading={postsLoading}
+            hasMore={hasMorePosts}
+            onloadmore={loadMorePosts}
+            emptyMessage="No photos or videos posted in this group yet"
           />
         {:else if activeTab === 'members'}
           {#if membersLoading}
