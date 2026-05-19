@@ -254,11 +254,36 @@ defmodule Hybridsocial.Groups do
       nil ->
         {:error, :not_member}
 
+      %GroupMember{role: :owner} = member ->
+        # An owner walking out abandons the group: no one would be left
+        # to manage settings, accept applications, or transfer power.
+        # Require either promoting another member to owner first or
+        # deleting the group outright. The "last owner" check is
+        # strict — if there happen to be co-owners, any one of them
+        # may leave.
+        case count_owners(group_id) do
+          n when n > 1 ->
+            do_leave(member, group_id)
+
+          _ ->
+            {:error, :owner_must_transfer}
+        end
+
       member ->
-        Repo.delete(member)
-        update_member_count(group_id, -1)
-        {:ok, member}
+        do_leave(member, group_id)
     end
+  end
+
+  defp do_leave(%GroupMember{} = member, group_id) do
+    Repo.delete(member)
+    update_member_count(group_id, -1)
+    {:ok, member}
+  end
+
+  defp count_owners(group_id) do
+    GroupMember
+    |> where([m], m.group_id == ^group_id and m.role == ^:owner and m.status == ^:approved)
+    |> Repo.aggregate(:count)
   end
 
   def get_members(group_id, opts \\ []) do

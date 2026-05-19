@@ -21,18 +21,23 @@
     group.member_count === 1 ? '1 member' : `${group.member_count.toLocaleString()} members`
   );
 
-  let actionLabel = $derived(
-    group.is_member
-      ? 'Leave'
-      : group.pending_request
-        ? 'Pending'
-        : 'Join'
-  );
-
+  let isOwner = $derived(group.role === 'owner');
   let isAdmin = $derived(group.role === 'owner' || group.role === 'admin');
+
+  // An owner walking away abandons the group — backend will reject
+  // with `group.owner_must_transfer`, but we suppress the button
+  // entirely so the dead end isn't a surprise. They can still leave
+  // after promoting another member to owner from the manage modal,
+  // or delete the group outright from Danger zone.
+  let actionLabel = $derived.by(() => {
+    if (group.is_member) return isOwner ? null : 'Leave';
+    if (group.pending_request) return 'Pending';
+    return 'Join';
+  });
 
   function handleAction() {
     if (group.is_member) {
+      if (isOwner) return;
       onleave?.();
     } else if (!group.pending_request) {
       onjoin?.();
@@ -75,16 +80,18 @@
               </svg>
             </button>
           {/if}
-          <button
-            type="button"
-            class="btn"
-            class:btn-primary={!group.is_member && !group.pending_request}
-            class:btn-outline={group.is_member || group.pending_request}
-            onclick={handleAction}
-            disabled={group.pending_request}
-          >
-            {actionLabel}
-          </button>
+          {#if actionLabel}
+            <button
+              type="button"
+              class="btn"
+              class:btn-primary={!group.is_member && !group.pending_request}
+              class:btn-outline={group.is_member || group.pending_request}
+              onclick={handleAction}
+              disabled={group.pending_request}
+            >
+              {actionLabel}
+            </button>
+          {/if}
         </div>
       </div>
 

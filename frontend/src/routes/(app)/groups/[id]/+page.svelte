@@ -11,6 +11,7 @@
   import GroupManageModal from '$lib/components/group/GroupManageModal.svelte';
   import ComposerTrigger from '$lib/components/post/ComposerTrigger.svelte';
   import MediaGrid from '$lib/components/feed/MediaGrid.svelte';
+  import { addToast } from '$lib/stores/toast.js';
   import Tabs from '$lib/components/ui/Tabs.svelte';
   import FeedList from '$lib/components/feed/FeedList.svelte';
   import Avatar from '$lib/components/ui/Avatar.svelte';
@@ -117,7 +118,18 @@
     try {
       await leaveGroup(groupId);
       group = { ...group, is_member: false, member_count: Math.max(0, group.member_count - 1), role: null };
-    } catch {}
+    } catch (err) {
+      // The server rejects a lone owner trying to leave; surface a
+      // helpful message instead of swallowing it like other errors.
+      const apiErr = err as { body?: { error?: string; detail?: string } };
+      if (apiErr?.body?.error === 'group.owner_must_transfer') {
+        addToast(
+          apiErr.body.detail ||
+            "You're the only owner — promote another member first, or delete the group.",
+          'error',
+        );
+      }
+    }
   }
 
   // --- Admin: Member Management ---

@@ -160,6 +160,15 @@ defmodule HybridsocialWeb.Api.V1.GroupController do
         conn
         |> put_status(:not_found)
         |> json(%{error: "group.not_member"})
+
+      {:error, :owner_must_transfer} ->
+        conn
+        |> put_status(:conflict)
+        |> json(%{
+          error: "group.owner_must_transfer",
+          detail:
+            "You're the only owner. Promote another member to owner first, or delete the group."
+        })
     end
   end
 
