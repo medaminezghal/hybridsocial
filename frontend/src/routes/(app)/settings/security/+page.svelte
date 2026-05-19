@@ -18,7 +18,13 @@
     isWarningDisabled,
     setWarningDisabled,
     clearTrustedDomains,
+    knownTrustedDomains,
   } from '$lib/utils/external-link-trust.js';
+
+  // The built-in allowlist is static — read once at module load so the
+  // template doesn't recompute it every render.
+  const preTrusted = knownTrustedDomains();
+  let showPreTrusted = $state(false);
 
   // --- External link warning ---
   let externalLinkWarningEnabled = $state(true);
@@ -732,6 +738,31 @@
             Clear all
           </button>
         </div>
+
+        <div class="ext-link-row" style="margin-block-start: 12px;">
+          <div class="ext-link-info">
+            <span class="ext-link-label">Pre-trusted well-known sites</span>
+            <span class="ext-link-meta">
+              We skip the warning for major platforms ({preTrusted.length} domains
+              like GitHub, Wikipedia, YouTube). Subdomains are covered too.
+            </span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-ghost"
+            onclick={() => (showPreTrusted = !showPreTrusted)}
+          >
+            {showPreTrusted ? 'Hide' : 'Show list'}
+          </button>
+        </div>
+
+        {#if showPreTrusted}
+          <ul class="pre-trusted-list">
+            {#each preTrusted as domain (domain)}
+              <li class="pre-trusted-item"><code>{domain}</code></li>
+            {/each}
+          </ul>
+        {/if}
       {/if}
     </div>
   </section>
@@ -880,6 +911,25 @@
 
   .ext-link-toggle.on .ext-link-knob {
     inset-inline-start: 22px;
+  }
+
+  .pre-trusted-list {
+    list-style: none;
+    padding: var(--space-3);
+    margin: var(--space-2) 0 0 0;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: var(--space-1);
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .pre-trusted-item code {
+    font-size: 0.8rem;
+    color: var(--color-text-secondary);
   }
 
   /* ---- Page layout ---- */

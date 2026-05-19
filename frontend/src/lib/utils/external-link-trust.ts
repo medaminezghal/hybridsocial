@@ -14,6 +14,110 @@ const TRUST_KEY = 'hs:external_link_trust';
 const DISABLED_KEY = 'hs:external_link_warning_disabled';
 const TTL_MS = 24 * 60 * 60 * 1000;
 
+// Built-in allowlist. Major, well-known platforms where the cost of
+// the warning (annoyance, drop-off) outweighs the benefit (most users
+// know these brands and would recognise a typo'd lookalike). Stored as
+// root domains — `isKnownDomain` matches both the root and any
+// subdomain. Kept short on purpose; phishing protection only works if
+// the list is conservative.
+const KNOWN_TRUSTED_DOMAINS: ReadonlySet<string> = new Set([
+  // Code hosting / collaboration
+  'github.com',
+  'gitlab.com',
+  'bitbucket.org',
+  'codeberg.org',
+  'sourcehut.org',
+  'sr.ht',
+
+  // Q&A and reference
+  'stackoverflow.com',
+  'stackexchange.com',
+  'wikipedia.org',
+  'wikimedia.org',
+  'mdn.io',
+  'developer.mozilla.org',
+
+  // Search and big-tech roots (we match subdomains, so docs.*, mail.*,
+  // etc. are all covered automatically)
+  'google.com',
+  'youtube.com',
+  'youtu.be',
+  'microsoft.com',
+  'apple.com',
+  'amazon.com',
+  'cloudflare.com',
+  'mozilla.org',
+
+  // Major social platforms (so a link to a tweet / post doesn't get
+  // interrupted on every click)
+  'twitter.com',
+  'x.com',
+  'facebook.com',
+  'instagram.com',
+  'linkedin.com',
+  'reddit.com',
+  'youtube.com',
+  'tiktok.com',
+  'pinterest.com',
+  'threads.net',
+  'bsky.app',
+  'mastodon.social',
+  'mastodon.online',
+
+  // Comms / productivity
+  'discord.com',
+  'discord.gg',
+  'slack.com',
+  'zoom.us',
+  'notion.so',
+  'dropbox.com',
+  'figma.com',
+
+  // Package registries and dev infrastructure
+  'npmjs.com',
+  'pypi.org',
+  'rubygems.org',
+  'crates.io',
+  'hex.pm',
+  'pkg.go.dev',
+  'nodejs.org',
+  'rust-lang.org',
+  'python.org',
+  'elixir-lang.org',
+  'docker.com',
+
+  // News / major media (a heuristic — extend per instance taste)
+  'nytimes.com',
+  'bbc.com',
+  'bbc.co.uk',
+  'reuters.com',
+  'theguardian.com',
+  'apnews.com',
+  'aljazeera.com',
+  'aljazeera.net',
+  'arxiv.org',
+]);
+
+/**
+ * Returns true if `hostname` matches any root domain in the built-in
+ * allowlist. Matching is suffix-aware: `gist.github.com` matches
+ * `github.com`, `mail.google.com` matches `google.com`. Exported so the
+ * security settings page can show the user which roots are pre-trusted.
+ */
+export function isKnownDomain(hostname: string): boolean {
+  if (!hostname) return false;
+  const host = hostname.toLowerCase();
+  for (const root of KNOWN_TRUSTED_DOMAINS) {
+    if (host === root || host.endsWith('.' + root)) return true;
+  }
+  return false;
+}
+
+/** The full list of pre-trusted roots, exported so the UI can show it. */
+export function knownTrustedDomains(): string[] {
+  return [...KNOWN_TRUSTED_DOMAINS].sort();
+}
+
 type TrustMap = Record<string, number>;
 
 function isBrowser(): boolean {
@@ -56,6 +160,10 @@ function prune(map: TrustMap, now: number = Date.now()): TrustMap {
 /** Returns true if `domain` is currently trusted. Auto-prunes stale entries. */
 export function isDomainTrusted(domain: string): boolean {
   if (!domain) return false;
+  // Built-in allowlist always wins — checked before the per-user map
+  // so adding a new well-known site doesn't depend on the user having
+  // previously approved it.
+  if (isKnownDomain(domain)) return true;
   const pruned = prune(readTrust());
   // Write-back the pruned copy so storage doesn't grow unbounded.
   writeTrust(pruned);
