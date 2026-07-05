@@ -69,7 +69,7 @@
 
   .hosting-promo:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(13, 148, 136, 0.1);
+    box-shadow: 0 4px 16px rgba(108, 62, 221, 0.1);
   }
 
   .hosting-badge {
@@ -79,7 +79,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--promo-accent);
-    background: var(--color-primary-soft, rgba(13, 148, 136, 0.1));
+    background: var(--color-primary-soft, rgba(108, 62, 221, 0.1));
     padding: 2px 8px;
     border-radius: var(--radius-full);
     margin-block-end: var(--space-3);

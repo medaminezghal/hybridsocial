@@ -183,7 +183,7 @@
   .stitch-field { margin-block-end: var(--space-3); }
   .stitch-label { display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); margin-block-end: 6px; }
   .stitch-input { width: 100%; padding: 10px 14px; border: 1px solid var(--color-border); border-radius: 10px; font-size: 0.875rem; color: var(--color-text); background: var(--color-surface); }
-  .stitch-input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 2px var(--color-primary-soft, rgba(0,128,128,0.1)); }
+  .stitch-input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 2px var(--color-primary-soft, rgba(108,62,221,0.1)); }
 
   .action-toggle { display: flex; gap: 8px; }
   .action-opt {
@@ -192,7 +192,7 @@
     background: transparent; color: var(--color-text-secondary); font-size: 0.8125rem; font-weight: 600; cursor: pointer;
     transition: all 150ms ease;
   }
-  .action-opt.active { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-soft, rgba(0,128,128,0.05)); }
+  .action-opt.active { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-soft, rgba(108,62,221,0.05)); }
 
   .context-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .context-chip {

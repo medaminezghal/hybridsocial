@@ -279,7 +279,7 @@
     font-size: 0.875rem;
     font-weight: 600;
     cursor: pointer;
-    box-shadow: 0 4px 12px rgba(0, 106, 105, 0.25);
+    box-shadow: 0 4px 12px rgba(108, 62, 221, 0.25);
     z-index: var(--z-sticky);
     transition: background-color 150ms ease, transform 150ms ease;
     animation: pill-enter 0.3s ease;
@@ -383,7 +383,7 @@
     place-items: center;
     color: var(--color-primary);
     background: var(--color-secondary-container);
-    box-shadow: 0 8px 24px rgba(0, 106, 105, 0.12);
+    box-shadow: 0 8px 24px rgba(108, 62, 221, 0.12);
     margin-block-end: var(--space-5);
   }
 

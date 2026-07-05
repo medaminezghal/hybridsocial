@@ -1226,6 +1226,7 @@
 
 <style>
   .post-card {
+    position: relative;
     background: var(--color-surface-container-lowest);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xl);
@@ -1321,10 +1322,14 @@
      stays white (no graying). Detail view + tombstones opt out. */
   .post-card:hover {
     transform: translateY(-2px);
+    /* Lift the hovered card above its siblings. The hover transform
+       creates a stacking context, which otherwise traps an open action
+       dropdown *below* the next card (making it unclickable). */
+    z-index: 5;
     box-shadow:
       0 2px 4px rgba(25, 28, 29, 0.05),
-      0 16px 36px rgba(0, 106, 105, 0.11);
-    border-color: rgba(0, 106, 105, 0.18);
+      0 16px 36px rgba(108, 62, 221, 0.11);
+    border-color: rgba(108, 62, 221, 0.18);
   }
 
   .post-card.detail:hover,
@@ -1848,7 +1853,7 @@
   }
 
   .content-toggle-btn:hover {
-    background: var(--color-primary-soft, rgba(0, 128, 128, 0.08));
+    background: var(--color-primary-soft, rgba(108, 62, 221, 0.08));
     color: var(--color-primary);
     border-color: var(--color-primary);
   }
