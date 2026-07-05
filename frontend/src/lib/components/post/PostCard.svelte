@@ -120,7 +120,7 @@
       const detail = (e as CustomEvent<{ id: string; action: string }>).detail;
       if (!detail || detail.id !== post.id) return;
       if (detail.action === 'toggle-cw') {
-        if (post.sensitive && post.spoiler_text) {
+        if (post.sensitive) {
           showSensitive = !showSensitive;
         } else if (filterMatch?.action === 'warn') {
           filterRevealed = !filterRevealed;
@@ -783,7 +783,7 @@
 
       <!-- Post body -->
       <div class="post-body" class:filter-hidden={filterMatch?.action === 'warn' && !filterRevealed}>
-        <div class="nsfw-container" class:nsfw-active={post.sensitive && post.spoiler_text} class:nsfw-revealed={showSensitive}>
+        <div class="nsfw-container" class:nsfw-active={post.sensitive} class:nsfw-revealed={showSensitive}>
           <div class="nsfw-content">
           {#if post.content_html}
             <div
@@ -987,7 +987,7 @@
           {/if}
           </div>
 
-          {#if post.sensitive && post.spoiler_text}
+          {#if post.sensitive}
             {@const wavePaths = generateWavePaths(post.id)}
             <svg class="nsfw-noise-svg" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">
               <defs>
