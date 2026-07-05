@@ -27,6 +27,21 @@
 		api_key {$CROWDSEC_BOUNCER_CADDY_KEY}
 		ticker_interval 15s
 	}
+
+	# Real client IP behind Cloudflare. The caddy-cloudflare-ip module
+	# fetches CF's published edge ranges (refreshed every 12h) and marks
+	# them trusted; the real visitor IP is then read from CF-Connecting-IP.
+	# This feeds Caddy's client_ip to the CrowdSec bouncer, Coraza, logs,
+	# and the app — so CrowdSec bans the attacker, not a Cloudflare edge.
+	# Safe when DNS-only too: the header is only honored from these
+	# trusted source IPs, so a direct client can't spoof it.
+	servers {
+		trusted_proxies cloudflare {
+			interval 12h
+			timeout 15s
+		}
+		client_ip_headers Cf-Connecting-Ip
+	}
 }
 
 # ---------- Media domain (no WAF) ----------
