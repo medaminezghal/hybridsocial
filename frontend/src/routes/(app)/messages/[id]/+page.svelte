@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import type { Conversation, Message } from '$lib/api/types.js';
@@ -32,6 +32,7 @@
   let cursor = $state<string | null>(null);
   let hasMore = $state(true);
   let messagesEndEl: HTMLDivElement | undefined = $state();
+  let scrollEl: HTMLDivElement | undefined = $state();
   let typingUser = $state<string | null>(null);
   let typingTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -223,15 +224,31 @@
   async function loadMore() {
     if (!cursor || !hasMore || loadingMore) return;
     loadingMore = true;
+    // Anchor the viewport: prepending older messages grows the scroll
+    // height above the current view, so restore scrollTop by the delta
+    // to keep the user's place instead of snapping to the top.
+    const prevHeight = scrollEl?.scrollHeight ?? 0;
+    const prevTop = scrollEl?.scrollTop ?? 0;
     try {
       const result = await getMessages(conversationId, cursor);
       messages = [...result.data.reverse(), ...messages];
       cursor = result.next_cursor;
       hasMore = !!result.next_cursor;
+      await tick();
+      if (scrollEl) {
+        scrollEl.scrollTop = prevTop + (scrollEl.scrollHeight - prevHeight);
+      }
     } catch {
       // Error loading more
     } finally {
       loadingMore = false;
+    }
+  }
+
+  // Auto-load older history as the user scrolls near the top.
+  function handleScroll() {
+    if (scrollEl && scrollEl.scrollTop < 120 && hasMore && !loadingMore) {
+      void loadMore();
     }
   }
 
@@ -501,7 +518,7 @@
       <Spinner />
     </div>
   {:else}
-    <div class="messages-container" class:rippling role="log" aria-label="Messages">
+    <div class="messages-container" class:rippling role="log" aria-label="Messages" bind:this={scrollEl} onscroll={handleScroll}>
       {#if hasMore && messages.length > 0}
         <button type="button" class="load-more-btn" onclick={loadMore} disabled={loadingMore}>
           {loadingMore ? 'Loading...' : 'Load older messages'}
