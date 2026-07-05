@@ -394,6 +394,10 @@
   .emoji-grid-container {
     overflow-y: auto;
     flex: 1;
+    /* Without min-height:0 a flex child won't shrink below its content
+       height, so the grid overflows the picker's max-height and gets
+       clipped (a half-row at the edge) instead of scrolling internally. */
+    min-height: 0;
     padding: var(--space-2);
   }
 
