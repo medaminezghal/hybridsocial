@@ -221,7 +221,7 @@ services:
       MEDIA_DOMAIN: ${MEDIA_DOMAIN:-}
       CROWDSEC_BOUNCER_CADDY_KEY: ${CROWDSEC_BOUNCER_CADDY_KEY:?Run 'sh docker/generate-secrets.sh .env' first}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
       - caddy_data:/data
       - caddy_config:/config
       - caddy_logs:/var/log/caddy
@@ -257,9 +257,9 @@ services:
       - caddy_logs:/var/log/caddy:ro
       - crowdsec_data:/var/lib/crowdsec/data
       - crowdsec_config:/etc/crowdsec
-      - ./crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml:ro
-      - ./crowdsec/profiles.yaml:/etc/crowdsec/profiles.yaml:ro
-      - ./crowdsec/notifications/email.yaml:/etc/crowdsec/notifications/email.yaml:ro
+      - ./crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml:ro,z
+      - ./crowdsec/profiles.yaml:/etc/crowdsec/profiles.yaml:ro,z
+      - ./crowdsec/notifications/email.yaml:/etc/crowdsec/notifications/email.yaml:ro,z
     healthcheck:
       test: ["CMD", "cscli", "lapi", "status"]
       interval: 30s
