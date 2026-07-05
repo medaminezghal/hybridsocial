@@ -103,6 +103,7 @@ defmodule Hybridsocial.Feeds do
       # of every public timeline — same intent as soft-delete, but
       # recoverable with a single admin unhide.
       |> where([p], is_nil(p.hidden_at))
+      |> exclude_unpublished()
       |> maybe_exclude_replies(include_replies)
       |> apply_cursor_filters(opts)
       |> Visibility.apply_silence_filter()
@@ -138,6 +139,13 @@ defmodule Hybridsocial.Feeds do
       join: i in Identity,
       on: i.id == p.identity_id,
       where: i.is_local == true
+  end
+
+  # Scheduled/unpublished posts (published_at IS NULL) must never appear in
+  # any timeline — only in the author's dedicated scheduled view. Without
+  # this a scheduled post leaks into every feed until the worker publishes it.
+  defp exclude_unpublished(query) do
+    where(query, [p], not is_nil(p.published_at))
   end
 
   # ---------------------------------------------------------------------------
@@ -177,6 +185,7 @@ defmodule Hybridsocial.Feeds do
         Post
         |> where([p], p.identity_id == ^identity_id)
         |> where([p], is_nil(p.deleted_at))
+        |> exclude_unpublished()
         |> apply_account_visibility(identity_id, viewer_id)
         |> maybe_exclude_replies(not exclude_replies)
         |> maybe_only_media(only_media)
@@ -237,6 +246,7 @@ defmodule Hybridsocial.Feeds do
       Post
       |> where([p], p.visibility == "public")
       |> where([p], is_nil(p.deleted_at))
+      |> exclude_unpublished()
       |> where([p], ilike(p.content, ^tag_pattern))
       |> apply_cursor_filters(opts)
       |> Visibility.apply_silence_filter()
@@ -285,6 +295,7 @@ defmodule Hybridsocial.Feeds do
           Post
           |> where([p], p.identity_id in subquery(member_ids))
           |> where([p], is_nil(p.deleted_at))
+          |> exclude_unpublished()
           |> apply_cursor_filters(opts)
           |> Visibility.apply_block_filter(viewer_id)
           |> Visibility.apply_mute_filter(viewer_id)
@@ -324,6 +335,7 @@ defmodule Hybridsocial.Feeds do
       |> where([p], p.visibility == "public")
       |> where([p], is_nil(p.deleted_at))
       |> where([p], is_nil(p.hidden_at))
+      |> exclude_unpublished()
       |> maybe_exclude_replies(include_replies)
       |> apply_cursor_filters(opts)
       |> Visibility.apply_silence_filter()
@@ -377,6 +389,7 @@ defmodule Hybridsocial.Feeds do
             Post
             |> where([p], p.group_id == ^group_id)
             |> where([p], is_nil(p.deleted_at))
+            |> exclude_unpublished()
             |> apply_cursor_filters(opts)
             # Pinned posts surface at the top of the group timeline.
             # `desc: is_pinned` (boolean) puts true ahead of false; the
