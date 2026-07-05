@@ -107,30 +107,31 @@
           </li>
         {/each}
       {/each}
-      {#if showCompose}
-        <!-- Composer trigger lives at the foot of the nav list rather
-             than as a floating FAB. Same gating as the old FAB —
-             hidden inside DMs / admin / settings where it'd just be
-             in the way. -->
-        <li>
-          <button
-            type="button"
-            class="nav-item nav-item-compose"
-            onclick={openComposer}
-            aria-label="Compose new post"
-          >
-            <span class="nav-icon-wrap">
-              <svg class="nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
-                <path d="M18.586 3.586a2 2 0 112.828 2.828L12 16l-4 1 1-4 9.586-9.414z" />
-              </svg>
-            </span>
-            <span class="nav-label">New post</span>
-          </button>
-        </li>
-      {/if}
     </ul>
   </nav>
+
+  {#if showCompose}
+    <!-- Composer trigger pinned below the scrollable nav list so it stays
+         reachable on short viewports instead of scrolling off with the
+         destinations. Same gating as the old FAB — hidden inside DMs /
+         admin / settings where it'd just be in the way. -->
+    <div class="sidebar-footer">
+      <button
+        type="button"
+        class="nav-item nav-item-compose"
+        onclick={openComposer}
+        aria-label="Compose new post"
+      >
+        <span class="nav-icon-wrap">
+          <svg class="nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
+            <path d="M18.586 3.586a2 2 0 112.828 2.828L12 16l-4 1 1-4 9.586-9.414z" />
+          </svg>
+        </span>
+        <span class="nav-label">New post</span>
+      </button>
+    </div>
+  {/if}
 
   {#if user}
     <div class="sidebar-user">
@@ -153,11 +154,22 @@
     display: flex;
     flex-direction: column;
     padding: var(--space-2) 0;
+    /* The sidebar itself doesn't scroll — only the nav destinations do,
+       so the compose button + user stay pinned at the bottom on short
+       (low-res / zoomed) viewports. */
+    overflow: hidden;
+  }
+
+  /* Destinations scroll when they can't all fit; min-height:0 lets the
+     flex child actually shrink so the pinned footer/user always show. */
+  .sidebar-nav {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
   }
 
-  .sidebar-nav {
-    flex: 1;
+  .sidebar-footer {
+    flex-shrink: 0;
   }
 
   .nav-list {
@@ -263,6 +275,7 @@
   }
 
   .sidebar-user {
+    flex-shrink: 0;
     padding-block-start: var(--space-4);
     margin-block-start: var(--space-4);
   }
