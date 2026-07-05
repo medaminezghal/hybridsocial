@@ -7,6 +7,7 @@ defmodule Hybridsocial.Migration.PleromaImportTest do
   alias Hybridsocial.Accounts.Identity
   alias Hybridsocial.Federation.ActorSerializer
   alias Hybridsocial.Repo
+  alias Hybridsocial.Social.Follow
 
   # A real RSA private key PEM, exactly as Pleroma stores in `users.keys`.
   defp real_private_pem do
@@ -100,6 +101,47 @@ defmodule Hybridsocial.Migration.PleromaImportTest do
 
     assert :public_key.verify(message, :sha256, signature, pub)
     refute :public_key.verify(message <> "tampered", :sha256, signature, pub)
+  end
+
+  test "imports remote endpoints + follows, mapping Pleroma state to status" do
+    a = pleroma_user("fa#{:erlang.unique_integer([:positive])}")
+    b = pleroma_user("fb#{:erlang.unique_integer([:positive])}")
+    {:ok, _} = PleromaImport.import_user(a)
+    {:ok, _} = PleromaImport.import_user(b)
+
+    remote = %{
+      "id" => Ecto.UUID.generate(),
+      "nickname" => "bob",
+      "ap_id" => "https://mastodon.example/users/bob#{:erlang.unique_integer([:positive])}",
+      "name" => "Bob",
+      "actor_type" => "Person",
+      "public_key" => "-----BEGIN PUBLIC KEY-----\nMIIB...\n-----END PUBLIC KEY-----\n",
+      "inbox" => nil,
+      "follower_address" => nil,
+      "avatar" => %{}
+    }
+
+    assert %{ok: 1} = PleromaImport.import_remote_actors([remote])
+    # remote endpoint is a non-local identity with the source uuid
+    ri = Repo.get_by(Identity, ap_actor_url: remote["ap_id"])
+    assert ri.is_local == false
+    assert ri.id == remote["id"]
+
+    follows = [
+      %{"follower_id" => a["id"], "following_id" => b["id"], "state" => 2},
+      %{"follower_id" => a["id"], "following_id" => remote["id"], "state" => 1},
+      # missing endpoint → skip
+      %{"follower_id" => b["id"], "following_id" => Ecto.UUID.generate(), "state" => 2},
+      # rejected → skip
+      %{"follower_id" => b["id"], "following_id" => a["id"], "state" => 3}
+    ]
+
+    summary = PleromaImport.import_follows(follows)
+    assert summary.ok == 2
+    assert summary.skipped == 2
+
+    assert Repo.get_by(Follow, follower_id: a["id"], followee_id: b["id"]).status == :accepted
+    assert Repo.get_by(Follow, follower_id: a["id"], followee_id: remote["id"]).status == :pending
   end
 
   test "import_users summarizes outcomes" do
