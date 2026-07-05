@@ -153,7 +153,10 @@ defmodule Hybridsocial.Accounts.Identity do
     |> put_change(:is_local, true)
     |> validate_required([:type, :handle, :ap_actor_url, :public_key, :private_key])
     |> validate_inclusion(:type, @valid_types)
-    |> validate_format(:handle, ~r/^[a-zA-Z0-9_]+$/)
+    # Imported handles may contain hyphens (Pleroma/Rebased allow them);
+    # native registration stays stricter. WebFinger must answer the exact
+    # original handle so remote discovery keeps working after the swap.
+    |> validate_format(:handle, ~r/^[a-zA-Z0-9_-]+$/)
     |> unique_constraint(:handle)
     |> unique_constraint(:ap_actor_url)
   end
