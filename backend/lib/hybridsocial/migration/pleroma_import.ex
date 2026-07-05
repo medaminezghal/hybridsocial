@@ -21,7 +21,7 @@ defmodule Hybridsocial.Migration.PleromaImport do
   require Logger
 
   alias Hybridsocial.Repo
-  alias Hybridsocial.Accounts.Identity
+  alias Hybridsocial.Accounts.{Identity, User}
   alias Hybridsocial.Social.{Follow, Post, Posts}
   alias Hybridsocial.Media.MediaFile
   alias Hybridsocial.Federation.ActivityMapper
@@ -35,15 +35,54 @@ defmodule Hybridsocial.Migration.PleromaImport do
     with {:ok, attrs} <- to_identity_attrs(u) do
       case Repo.get_by(Identity, ap_actor_url: attrs["ap_actor_url"]) do
         nil ->
-          attrs
-          |> Identity.import_changeset()
-          |> Repo.insert()
+          case attrs |> Identity.import_changeset() |> Repo.insert() do
+            {:ok, identity} ->
+              maybe_create_user_account(identity, u["email"])
+              {:ok, identity}
+
+            error ->
+              error
+          end
 
         %Identity{} = existing ->
           {:ok, existing}
       end
     end
   end
+
+  # A local Pleroma user needs a HybridSocial User account (login + email) so
+  # they can reclaim it via the post-migration password reset. We give it a
+  # random unusable password (they set a real one through the reset email)
+  # and mark it confirmed since they're a pre-existing user. Users with no
+  # email get an identity only — no login row — and are handled manually.
+  defp maybe_create_user_account(identity, email) when is_binary(email) and email != "" do
+    pw = 24 |> :crypto.strong_rand_bytes() |> Base.url_encode64()
+
+    result =
+      %User{identity_id: identity.id}
+      |> User.registration_changeset(%{
+        "email" => email,
+        "password" => pw,
+        "password_confirmation" => pw
+      })
+      |> Ecto.Changeset.put_change(:confirmed_at, DateTime.utc_now())
+      |> Ecto.Changeset.put_change(:confirmation_token, nil)
+      |> Repo.insert()
+
+    case result do
+      {:ok, _user} ->
+        :ok
+
+      {:error, cs} ->
+        Logger.warning(
+          "[pleroma_import] user account failed for #{identity.handle}: #{inspect(cs.errors)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp maybe_create_user_account(_identity, _email), do: :ok
 
   @doc "Import a list of Pleroma user maps, returning a summary of outcomes."
   def import_users(users) when is_list(users) do

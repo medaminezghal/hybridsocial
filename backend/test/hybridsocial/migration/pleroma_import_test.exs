@@ -63,6 +63,26 @@ defmodule Hybridsocial.Migration.PleromaImportTest do
     }
   end
 
+  test "creates a login User account (email + blind index) so the user can reset" do
+    nick = "bassam#{:erlang.unique_integer([:positive])}"
+    u = pleroma_user(nick)
+
+    assert {:ok, identity} = PleromaImport.import_user(u)
+
+    user = Hybridsocial.Accounts.get_user_by_email(u["email"])
+    assert user
+    assert user.identity_id == identity.id
+    assert user.confirmed_at, "pre-existing users should be confirmed"
+  end
+
+  test "a user with no email gets an identity only (no login row)" do
+    nick = "noemail#{:erlang.unique_integer([:positive])}"
+    u = pleroma_user(nick) |> Map.delete("email")
+
+    assert {:ok, identity} = PleromaImport.import_user(u)
+    refute Hybridsocial.Repo.get(Hybridsocial.Accounts.User, identity.id)
+  end
+
   test "imports a Pleroma user, preserving URI + deriving the public key" do
     nick = "plero#{:erlang.unique_integer([:positive])}"
     u = pleroma_user(nick)
