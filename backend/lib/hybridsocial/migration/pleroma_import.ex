@@ -22,7 +22,9 @@ defmodule Hybridsocial.Migration.PleromaImport do
 
   alias Hybridsocial.Repo
   alias Hybridsocial.Accounts.Identity
-  alias Hybridsocial.Social.Follow
+  alias Hybridsocial.Social.{Follow, Post, Posts}
+  alias Hybridsocial.Media.MediaFile
+  alias Hybridsocial.Federation.ActivityMapper
 
   @doc """
   Import one Pleroma local-user map. Idempotent: an actor already present
@@ -163,6 +165,178 @@ defmodule Hybridsocial.Migration.PleromaImport do
       end
     end)
   end
+
+  @doc """
+  Import local `Note` objects (Pleroma `objects.data` maps) as posts,
+  reusing the same AP-Note → post mapping the inbox uses for federated
+  content, minus the federation/moderation/notification side-effects.
+
+  `author_map` is `ap_actor_url => identity_id` for the local users (build
+  it once with `local_author_map/0`). Notes whose author isn't a local
+  import are skipped. Parent links are resolved best-effort at insert and
+  finalised by `link_post_threads/0` afterwards (a child may be imported
+  before its parent).
+  """
+  def import_posts(notes, author_map) when is_list(notes) do
+    Enum.reduce(notes, %{ok: 0, skipped: 0, failed: []}, fn note, acc ->
+      case import_post(note, author_map) do
+        {:ok, _} -> %{acc | ok: acc.ok + 1}
+        {:skip, _} -> %{acc | skipped: acc.skipped + 1}
+        {:error, reason} -> %{acc | failed: [{note["id"], reason} | acc.failed]}
+      end
+    end)
+  end
+
+  def import_post(%{} = note, author_map) do
+    author_ap = note["actor"] || note["attributedTo"]
+
+    with author_id when is_binary(author_id) <- Map.get(author_map, author_ap),
+         attrs <- ActivityMapper.to_post(note) |> maybe_media_type(note),
+         ap_id when is_binary(ap_id) <- attrs["ap_id"],
+         nil <- Repo.get_by(Post, ap_id: ap_id) do
+      parent_ap_id = attrs["parent_ap_id"]
+      parent_id = resolve_parent_id(parent_ap_id)
+
+      insert_attrs =
+        attrs
+        |> Map.delete("parent_ap_id")
+        |> Map.put("identity_id", author_id)
+        |> Map.put("parent_ap_id", parent_ap_id)
+        |> put_if(parent_id, "parent_id")
+        |> Posts.maybe_resolve_root_id()
+
+      %Post{}
+      |> Post.create_changeset(insert_attrs, char_limit: 100_000)
+      |> maybe_change(:content_html, attrs["content_html"])
+      |> maybe_change(:published_at, attrs["published_at"])
+      |> Repo.insert()
+      |> case do
+        {:ok, post} ->
+          persist_attachments(note, post, author_id)
+          {:ok, post}
+
+        {:error, cs} ->
+          {:error, summarize_error(cs)}
+      end
+    else
+      nil -> {:skip, :author_not_local_or_dup}
+      %Post{} -> {:skip, :exists}
+      _ -> {:skip, :no_ap_id}
+    end
+  rescue
+    e in [Postgrex.Error, DBConnection.ConnectionError] -> {:error, Exception.message(e)}
+  end
+
+  @doc "ap_actor_url => identity_id for local (importable) actors."
+  def local_author_map do
+    from(i in Identity, where: i.is_local == true, select: {i.ap_actor_url, i.id})
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  @doc """
+  Second pass after `import_posts`: link parent_id from parent_ap_id, set
+  each post's thread root, and recompute reply counts. One-time bulk SQL.
+  """
+  def link_post_threads do
+    {parents, _} =
+      Repo.query!(
+        """
+        UPDATE posts c SET parent_id = p.id
+        FROM posts p
+        WHERE c.parent_ap_id = p.ap_id AND c.parent_id IS NULL AND c.parent_ap_id IS NOT NULL
+        """,
+        []
+      )
+      |> then(&{&1.num_rows, &1})
+
+    Repo.query!(
+      """
+      WITH RECURSIVE roots AS (
+        SELECT id, id AS root FROM posts WHERE parent_id IS NULL
+        UNION ALL
+        SELECT p.id, r.root FROM posts p JOIN roots r ON p.parent_id = r.id
+      )
+      UPDATE posts SET root_id = roots.root
+      FROM roots WHERE posts.id = roots.id AND posts.id <> roots.root
+      """,
+      []
+    )
+
+    Repo.query!(
+      """
+      UPDATE posts pp SET reply_count = sub.n
+      FROM (SELECT parent_id AS id, count(*) AS n FROM posts
+            WHERE parent_id IS NOT NULL AND deleted_at IS NULL GROUP BY parent_id) sub
+      WHERE pp.id = sub.id
+      """,
+      []
+    )
+
+    %{parents_linked: parents}
+  end
+
+  # A caption-less post with an attachment is a "media" post (content
+  # optional); to_post labels every Note "text", which would reject the
+  # blank content. Only reclassify when there's actually media.
+  defp maybe_media_type(attrs, note) do
+    blank? = String.trim(attrs["content"] || "") == ""
+    has_media? = note["attachment"] |> List.wrap() |> Enum.any?(&(attachment_url(&1) != nil))
+
+    if blank? and has_media?, do: Map.put(attrs, "post_type", "media"), else: attrs
+  end
+
+  defp resolve_parent_id(nil), do: nil
+
+  defp resolve_parent_id(parent_ap_id) do
+    case Repo.get_by(Post, ap_id: parent_ap_id) do
+      %Post{id: id} -> id
+      _ -> nil
+    end
+  end
+
+  defp put_if(attrs, nil, _key), do: attrs
+  defp put_if(attrs, val, key), do: Map.put(attrs, key, val)
+
+  defp maybe_change(cs, _field, nil), do: cs
+  defp maybe_change(cs, field, val), do: Ecto.Changeset.put_change(cs, field, val)
+
+  defp persist_attachments(note, post, author_id) do
+    note["attachment"]
+    |> List.wrap()
+    |> Enum.each(fn att ->
+      url = attachment_url(att)
+      domain = if is_binary(url), do: ActivityMapper.extract_domain(url), else: nil
+
+      if is_binary(url) and is_binary(domain) do
+        %MediaFile{}
+        |> MediaFile.remote_changeset(%{
+          identity_id: author_id,
+          post_id: post.id,
+          content_type: attachment_media_type(att) || "application/octet-stream",
+          remote_url: url,
+          remote_origin_domain: domain,
+          alt_text: att["name"],
+          width: att["width"],
+          height: att["height"],
+          blurhash: att["blurhash"],
+          metadata: %{"ap_type" => att["type"]}
+        })
+        |> Repo.insert()
+      end
+    end)
+  end
+
+  # Pleroma stores an attachment's url as an array of Link objects;
+  # Mastodon as a plain string. Handle both.
+  defp attachment_url(%{"url" => u}) when is_binary(u), do: u
+  defp attachment_url(%{"url" => [%{"href" => h} | _]}) when is_binary(h), do: h
+  defp attachment_url(%{"href" => h}) when is_binary(h), do: h
+  defp attachment_url(_), do: nil
+
+  defp attachment_media_type(%{"url" => [%{"mediaType" => mt} | _]}) when is_binary(mt), do: mt
+  defp attachment_media_type(%{"mediaType" => mt}) when is_binary(mt), do: mt
+  defp attachment_media_type(_), do: nil
 
   # --- mapping ---------------------------------------------------------
 

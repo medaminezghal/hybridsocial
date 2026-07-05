@@ -7,7 +7,26 @@ defmodule Hybridsocial.Migration.PleromaImportTest do
   alias Hybridsocial.Accounts.Identity
   alias Hybridsocial.Federation.ActorSerializer
   alias Hybridsocial.Repo
-  alias Hybridsocial.Social.Follow
+  alias Hybridsocial.Social.{Follow, Post}
+  alias Hybridsocial.Media.MediaFile
+
+  defp note_map(actor, id, in_reply_to, content) do
+    m = %{
+      "id" => id,
+      "type" => "Note",
+      "actor" => actor,
+      "attributedTo" => actor,
+      "content" => "<p>#{content}</p>",
+      "to" => ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc" => [actor <> "/followers"],
+      "published" => "2023-01-01T00:00:00Z",
+      "sensitive" => false,
+      "tag" => [],
+      "attachment" => []
+    }
+
+    if in_reply_to, do: Map.put(m, "inReplyTo", in_reply_to), else: m
+  end
 
   # A real RSA private key PEM, exactly as Pleroma stores in `users.keys`.
   defp real_private_pem do
@@ -142,6 +161,58 @@ defmodule Hybridsocial.Migration.PleromaImportTest do
 
     assert Repo.get_by(Follow, follower_id: a["id"], followee_id: b["id"]).status == :accepted
     assert Repo.get_by(Follow, follower_id: a["id"], followee_id: remote["id"]).status == :pending
+  end
+
+  test "imports notes as posts, resolves threading + reply counts" do
+    au = pleroma_user("pau#{:erlang.unique_integer([:positive])}")
+    {:ok, author} = PleromaImport.import_user(au)
+    map = PleromaImport.local_author_map()
+    uniq = :erlang.unique_integer([:positive])
+
+    root_note = note_map(au["ap_id"], "https://bassam.social/objects/root#{uniq}", nil, "hello world")
+    assert {:ok, root} = PleromaImport.import_post(root_note, map)
+    assert root.identity_id == author.id
+    assert root.ap_id == root_note["id"]
+    assert root.content =~ "hello world"
+    assert root.visibility == "public"
+
+    reply_note = note_map(au["ap_id"], "https://bassam.social/objects/reply#{uniq}", root_note["id"], "a reply")
+    assert {:ok, reply} = PleromaImport.import_post(reply_note, map)
+    assert reply.parent_ap_id == root_note["id"]
+
+    PleromaImport.link_post_threads()
+    assert Repo.get(Post, reply.id).parent_id == root.id
+    assert Repo.get(Post, reply.id).root_id == root.id
+    assert Repo.get(Post, root.id).reply_count == 1
+  end
+
+  test "skips notes whose author isn't a local import" do
+    map = PleromaImport.local_author_map()
+    note = note_map("https://mastodon.example/users/bob", "https://mastodon.example/objects/x", nil, "hi")
+    assert {:skip, _} = PleromaImport.import_post(note, map)
+  end
+
+  test "imports Pleroma array-form attachments as remote media" do
+    au = pleroma_user("pam#{:erlang.unique_integer([:positive])}")
+    {:ok, _} = PleromaImport.import_user(au)
+    map = PleromaImport.local_author_map()
+    uniq = :erlang.unique_integer([:positive])
+
+    note =
+      note_map(au["ap_id"], "https://bassam.social/objects/media#{uniq}", nil, "pic")
+      |> Map.put("attachment", [
+        %{
+          "type" => "Document",
+          "mediaType" => "image/png",
+          "name" => "alt",
+          "url" => [%{"href" => "https://media.bassam.social/x.png", "mediaType" => "image/png"}]
+        }
+      ])
+
+    {:ok, post} = PleromaImport.import_post(note, map)
+    media = Repo.all(from(m in MediaFile, where: m.post_id == ^post.id))
+    assert length(media) == 1
+    assert hd(media).remote_url == "https://media.bassam.social/x.png"
   end
 
   test "import_users summarizes outcomes" do
