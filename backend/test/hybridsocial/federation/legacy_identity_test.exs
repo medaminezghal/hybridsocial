@@ -126,6 +126,34 @@ defmodule Hybridsocial.Federation.LegacyIdentityTest do
       assert ap["endpoints"]["sharedInbox"] == "#{base}/inbox"
     end
 
+    test "outgoing activity actor field uses the stored URL for imported actors" do
+      handle = "legacy_#{:erlang.unique_integer([:positive])}"
+      ap_url = "https://bassam.social/users/#{handle}"
+      {:ok, identity} = import_actor(handle, ap_url)
+
+      follow =
+        Hybridsocial.Federation.ActivityBuilder.build_follow(
+          identity,
+          "https://mastodon.example/users/bob"
+        )
+
+      # The actor MUST match the keyId/actor-doc id, or remotes drop it.
+      assert follow["actor"] == ap_url
+      assert follow["object"] == "https://mastodon.example/users/bob"
+    end
+
+    test "native actor field stays on the /actors/<uuid> scheme" do
+      native = register_native("nativeactor")
+
+      follow =
+        Hybridsocial.Federation.ActivityBuilder.build_follow(
+          native,
+          "https://mastodon.example/users/bob"
+        )
+
+      assert follow["actor"] == "#{LocalUrl.base_url()}/actors/#{native.id}"
+    end
+
     test "imported actor serializes with its original Pleroma URI + key" do
       handle = "legacy_#{:erlang.unique_integer([:positive])}"
       ap_url = "https://bassam.social/users/#{handle}"
