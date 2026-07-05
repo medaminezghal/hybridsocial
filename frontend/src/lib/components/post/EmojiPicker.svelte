@@ -5,8 +5,12 @@
 
   let {
     onselect,
+    anchor,
+    onclose,
   }: {
     onselect: (text: string) => void;
+    anchor?: HTMLElement;
+    onclose?: () => void;
   } = $props();
 
   interface CustomEmoji {
@@ -20,19 +24,25 @@
   let activeTab = $state<string>(EMOJI_GROUPS[0].id);
   let query = $state('');
 
-  // The picker renders inside the composer's scrollable modal body, which
-  // clips overflow — a tall picker opening upward gets cropped at the modal
-  // edge. Render it position:fixed (escapes ancestor overflow, since the
-  // modal has no transform) and anchor it to the trigger button via JS,
-  // flipping below when there isn't room above.
+  // The picker lives inside the composer modal, which is position:fixed with a
+  // translate() transform (traps position:fixed descendants) AND clips overflow.
+  // So portal the picker to <body> to escape both, then anchor it to the trigger
+  // button via fixed coords, flipping below when there isn't room above.
   let pickerEl: HTMLDivElement | undefined = $state();
-  let posStyle = $state('');
+  let posStyle = $state('visibility:hidden;');
+
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        node.remove();
+      }
+    };
+  }
 
   function reposition() {
     const el = pickerEl;
-    if (!el) return;
-    const anchor = (el.parentElement?.querySelector('button') ?? el.parentElement) as HTMLElement | null;
-    if (!anchor) return;
+    if (!el || !anchor) return;
     const r = anchor.getBoundingClientRect();
     const w = el.offsetWidth || 340;
     const h = el.offsetHeight || 380;
@@ -47,15 +57,23 @@
     posStyle = `left:${Math.round(left)}px;top:${Math.round(top)}px;`;
   }
 
+  function onDocMouseDown(e: MouseEvent) {
+    const t = e.target as Node;
+    if (pickerEl?.contains(t) || anchor?.contains(t)) return;
+    onclose?.();
+  }
+
   onMount(() => {
     reposition();
     requestAnimationFrame(reposition);
     const onWin = () => reposition();
     window.addEventListener('resize', onWin);
     window.addEventListener('scroll', onWin, true);
+    document.addEventListener('mousedown', onDocMouseDown, true);
     return () => {
       window.removeEventListener('resize', onWin);
       window.removeEventListener('scroll', onWin, true);
+      document.removeEventListener('mousedown', onDocMouseDown, true);
     };
   });
 
@@ -149,7 +167,7 @@
   }
 </script>
 
-<div bind:this={pickerEl} class="emoji-picker" style={posStyle} onclick={(e) => e.stopPropagation()} role="dialog" aria-label="Emoji picker">
+<div use:portal bind:this={pickerEl} class="emoji-picker" style={posStyle} onclick={(e) => e.stopPropagation()} role="dialog" aria-label="Emoji picker">
   <div class="emoji-search">
     <span class="material-symbols-outlined emoji-search-icon" aria-hidden="true">search</span>
     <input

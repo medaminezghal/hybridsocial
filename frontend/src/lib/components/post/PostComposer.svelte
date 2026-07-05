@@ -116,6 +116,7 @@
 
   // Emoji picker state
   let showEmojiPicker = $state(false);
+  let emojiBtnEl = $state<HTMLButtonElement | undefined>();
   let showGifPicker = $state(false);
 
   // Schedule state
@@ -1644,6 +1645,7 @@
         <!-- Emoji picker -->
         <div class="emoji-picker-wrapper">
           <button
+            bind:this={emojiBtnEl}
             type="button"
             class="tool-btn"
             class:tool-active={showEmojiPicker}
@@ -1655,7 +1657,7 @@
             <span class="material-symbols-outlined tool-icon">mood</span>
           </button>
           {#if showEmojiPicker}
-            <EmojiPicker onselect={insertEmoji} />
+            <EmojiPicker onselect={insertEmoji} anchor={emojiBtnEl} onclose={() => (showEmojiPicker = false)} />
           {/if}
         </div>
 
