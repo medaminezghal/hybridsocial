@@ -57,7 +57,7 @@ export function follow(id: string): Promise<Relationship> {
 /** "Who to follow" suggestions for the current viewer. Server excludes
  *  accounts the viewer already follows. */
 export function getSuggestions(): Promise<Identity[]> {
-  return api.get('/api/v1/suggestions');
+  return api.get('/api/v1/accounts/suggestions');
 }
 
 /** Stop following a hashtag by name (case-insensitive on the server). */

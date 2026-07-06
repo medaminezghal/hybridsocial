@@ -394,7 +394,16 @@ defmodule HybridsocialWeb.Api.V1.AccountController do
   def relationships(conn, params) do
     identity = conn.assigns.current_identity
     ids = params["ids"] || params["id"] || []
-    ids = if is_list(ids), do: ids, else: [ids]
+
+    ids =
+      cond do
+        is_list(ids) -> ids
+        # Clients send `ids=a,b,c` as a comma-joined string; split it so we
+        # query real UUIDs instead of one malformed "a,b,c" id (which casts
+        # to an Ecto error → 400).
+        is_binary(ids) -> String.split(ids, ",", trim: true)
+        true -> [ids]
+      end
 
     rels = Social.relationships(identity.id, ids)
     conn |> put_status(:ok) |> json(rels)
