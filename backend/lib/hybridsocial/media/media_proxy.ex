@@ -21,15 +21,26 @@ defmodule Hybridsocial.Media.MediaProxy do
 
   def url(remote_url) when is_binary(remote_url) do
     if enabled?() and not local_url?(remote_url) do
-      # Prefer the isolated media origin (e.g. https://media.arab.place)
-      # — matches where local uploads are served from and keeps
-      # every piece of user-origin content off the main app cookie.
-      base = media_host() || HybridsocialWeb.Endpoint.url()
+      base = proxy_host()
       encoded = Base.url_encode64(remote_url, padding: false)
       signature = sign(encoded)
       "#{base}/proxy/media/#{signature}/#{encoded}"
     else
       remote_url
+    end
+  end
+
+  # Base host for proxied media URLs. The proxy endpoint is served by the
+  # backend, so the host must be one that routes `/proxy/*` to us — the app
+  # origin by default. We deliberately do NOT use `media_host` here: it may
+  # point at a pure object store (e.g. an R2 custom domain like
+  # media.example.com) that can't serve the proxy route. Deployments that
+  # front the backend from an isolated media origin can opt in with the
+  # `media_proxy_host` config.
+  defp proxy_host do
+    case Application.get_env(:hybridsocial, :media_proxy_host) do
+      host when is_binary(host) and host != "" -> String.trim_trailing(host, "/")
+      _ -> HybridsocialWeb.Endpoint.url()
     end
   end
 
