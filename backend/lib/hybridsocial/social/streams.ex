@@ -82,15 +82,20 @@ defmodule Hybridsocial.Social.Streams do
   end
 
   @doc """
-  Returns the video streams feed: public video_stream posts ordered by
-  engagement (reaction_count) with time decay, cursor paginated.
+  Returns the video streams feed: any public post carrying a qualifying
+  video attachment, ordered by engagement (reaction_count) then recency,
+  cursor paginated.
   """
   def streams_feed(_viewer_id, opts \\ []) do
     limit = parse_limit(opts)
     min_duration = Keyword.get(opts, :min_duration_seconds, 15.0)
 
-    # Streams feed surfaces public reels to everyone, including signed-out
-    # viewers. Excludes:
+    # Streams surfaces public video to everyone, including signed-out
+    # viewers. We deliberately do NOT gate on post_type == "video_stream"
+    # here: the composer only tags all-video *local* posts that way, so
+    # gating on it hid the (much larger) pool of federated/imported video
+    # posts. Membership is defined purely by "has a qualifying video",
+    # which also means future imports appear automatically. Excludes:
     #   - sensitive (NSFW) posts
     #   - posts with a content warning (spoiler_text)
     #   - posts whose video attachment is shorter than `min_duration`
@@ -102,7 +107,6 @@ defmodule Hybridsocial.Social.Streams do
     # multiplying rows on posts with multiple media.
     query =
       Post
-      |> where([p], p.post_type == "video_stream")
       |> where([p], p.visibility == "public")
       |> where([p], is_nil(p.deleted_at))
       |> where([p], p.sensitive == false)
