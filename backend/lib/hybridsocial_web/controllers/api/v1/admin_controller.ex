@@ -479,14 +479,29 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
 
   def get_email_config(conn, _params) do
     with :ok <- require_permission(conn, "settings.view") do
+      {env_override, env_provider} = email_env_override()
+
       config = %{
-        provider: Hybridsocial.Config.get("email_provider", "smtp"),
+        # When the server environment sets the transport (RESEND_API_KEY
+        # / SMTP_* in .env), the Mailer adapter is resolved from that at
+        # boot and the DB provider is ignored — so report the *effective*
+        # provider, not the stale DB value that made the panel look like
+        # SMTP was in use.
+        provider:
+          if(env_override,
+            do: env_provider,
+            else: Hybridsocial.Config.get("email_provider", "smtp")
+          ),
         from_address: Hybridsocial.Config.get("email_from_address", ""),
         smtp_host: Hybridsocial.Config.get("email_smtp_host", ""),
         smtp_port: Hybridsocial.Config.get("email_smtp_port", 587),
         smtp_username: Hybridsocial.Config.get("email_smtp_username", ""),
         smtp_ssl: Hybridsocial.Config.get("email_smtp_ssl", true),
-        resend_api_key: mask_secret(Hybridsocial.Config.get("email_resend_api_key", ""))
+        resend_api_key: mask_secret(Hybridsocial.Config.get("email_resend_api_key", "")),
+        # Tells the admin UI to lock the provider + connection fields and
+        # explain that the transport is managed by the environment.
+        env_override: env_override,
+        env_provider: env_provider
       }
 
       json(conn, config)
@@ -497,26 +512,52 @@ defmodule HybridsocialWeb.Api.V1.AdminController do
 
   def update_email_config(conn, params) do
     with :ok <- require_permission(conn, "settings.manage") do
-      if params["provider"], do: Hybridsocial.Config.set("email_provider", params["provider"])
+      {env_override, _} = email_env_override()
 
+      # The From address is always used (it's the From header on every
+      # message, including through Resend), so it stays editable.
       if params["from_address"],
         do: Hybridsocial.Config.set("email_from_address", params["from_address"])
 
-      if params["smtp_host"], do: Hybridsocial.Config.set("email_smtp_host", params["smtp_host"])
-      if params["smtp_port"], do: Hybridsocial.Config.set("email_smtp_port", params["smtp_port"])
+      # Provider + connection settings are managed by the server
+      # environment when RESEND_API_KEY / SMTP_* are set — the Mailer
+      # adapter is resolved from those at boot and these DB values are
+      # ignored. Refuse to persist them so the panel can't imply a change
+      # that would have no effect (the backend is authoritative here).
+      unless env_override do
+        if params["provider"], do: Hybridsocial.Config.set("email_provider", params["provider"])
 
-      if params["smtp_username"],
-        do: Hybridsocial.Config.set("email_smtp_username", params["smtp_username"])
+        if params["smtp_host"],
+          do: Hybridsocial.Config.set("email_smtp_host", params["smtp_host"])
 
-      if Map.has_key?(params, "smtp_ssl"),
-        do: Hybridsocial.Config.set("email_smtp_ssl", params["smtp_ssl"])
+        if params["smtp_port"],
+          do: Hybridsocial.Config.set("email_smtp_port", params["smtp_port"])
 
-      if params["resend_api_key"] && !String.contains?(params["resend_api_key"] || "", "****"),
-        do: Hybridsocial.Config.set("email_resend_api_key", params["resend_api_key"])
+        if params["smtp_username"],
+          do: Hybridsocial.Config.set("email_smtp_username", params["smtp_username"])
+
+        if Map.has_key?(params, "smtp_ssl"),
+          do: Hybridsocial.Config.set("email_smtp_ssl", params["smtp_ssl"])
+
+        if params["resend_api_key"] && !String.contains?(params["resend_api_key"] || "", "****"),
+          do: Hybridsocial.Config.set("email_resend_api_key", params["resend_api_key"])
+      end
 
       get_email_config(conn, %{})
     else
       {:error, perm} -> deny(conn, perm)
+    end
+  end
+
+  # Detects whether the mail transport is pinned by the server
+  # environment. `runtime.exs` resolves the Swoosh adapter from these at
+  # boot (Resend takes precedence over SMTP), so when either is set the
+  # DB-backed provider/connection settings are inert.
+  defp email_env_override do
+    cond do
+      (System.get_env("RESEND_API_KEY") || "") != "" -> {true, "resend"}
+      (System.get_env("SMTP_HOST") || "") != "" -> {true, "smtp"}
+      true -> {false, nil}
     end
   end
 

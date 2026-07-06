@@ -30,6 +30,15 @@
   let smtpUsername = $state('');
   let smtpSsl = $state(true);
 
+  // When the transport is pinned by the server environment (RESEND_API_KEY
+  // / SMTP_* in .env), the provider + connection fields are read-only —
+  // the backend ignores DB values in that case.
+  let envOverride = $state(false);
+  let envProvider = $state<string | null>(null);
+
+  const providerLabel = (p: string | null | undefined) =>
+    p === 'resend' ? 'Resend' : p === 'smtp' ? 'SMTP' : (p ?? 'unknown');
+
   onMount(async () => {
     try {
       config = await getEmailConfig();
@@ -39,6 +48,8 @@
       smtpPort = config.smtp_port || 587;
       smtpUsername = config.smtp_username || '';
       smtpSsl = config.smtp_ssl;
+      envOverride = config.env_override ?? false;
+      envProvider = config.env_provider ?? null;
     } catch {
       addToast('Failed to load email config', 'error');
     } finally {
@@ -99,10 +110,26 @@
     <section class="card">
       <h2 class="section-title">SMTP Settings</h2>
 
+      {#if envOverride}
+        <div class="env-notice" role="status">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <div>
+            <strong>Managed by the server environment.</strong>
+            Email is sent via <strong>{providerLabel(envProvider)}</strong>, configured through your server's
+            environment variables ({envProvider === 'resend' ? 'RESEND_API_KEY' : 'SMTP_*'} in <code>.env</code>).
+            The provider and connection settings below are read-only and can't be changed here.
+            Update your <code>.env</code> and restart to change the transport. The From address and templates
+            are still editable.
+          </div>
+        </div>
+      {/if}
+
       <div class="form-fields">
         <div class="form-field">
           <label for="provider" class="field-label">Provider</label>
-          <select id="provider" class="input" bind:value={provider}>
+          <select id="provider" class="input" bind:value={provider} disabled={envOverride}>
             <option value="smtp">SMTP</option>
             <option value="resend">Resend</option>
           </select>
@@ -116,23 +143,23 @@
         {#if provider === 'smtp'}
           <div class="form-field">
             <label for="smtp-host" class="field-label">SMTP Host</label>
-            <input id="smtp-host" type="text" class="input" bind:value={smtpHost} placeholder="smtp.example.com" />
+            <input id="smtp-host" type="text" class="input" bind:value={smtpHost} placeholder="smtp.example.com" disabled={envOverride} />
           </div>
 
           <div class="form-row">
             <div class="form-field">
               <label for="smtp-port" class="field-label">Port</label>
-              <input id="smtp-port" type="number" class="input" bind:value={smtpPort} />
+              <input id="smtp-port" type="number" class="input" bind:value={smtpPort} disabled={envOverride} />
             </div>
             <div class="form-field">
               <label for="smtp-username" class="field-label">Username</label>
-              <input id="smtp-username" type="text" class="input" bind:value={smtpUsername} />
+              <input id="smtp-username" type="text" class="input" bind:value={smtpUsername} disabled={envOverride} />
             </div>
           </div>
 
           <div class="form-field">
             <label class="toggle-label-row">
-              <input type="checkbox" bind:checked={smtpSsl} class="toggle-cb" />
+              <input type="checkbox" bind:checked={smtpSsl} class="toggle-cb" disabled={envOverride} />
               <span>Use SSL/TLS</span>
             </label>
           </div>
@@ -187,6 +214,39 @@
     font-size: var(--text-lg);
     font-weight: 600;
     margin-block-end: var(--space-4);
+  }
+
+  .env-notice {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    padding: var(--space-3) var(--space-4);
+    margin-block-end: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg, 0.75rem);
+    background: var(--color-surface-container-low);
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    line-height: var(--line-height, 1.5);
+  }
+
+  .env-notice svg {
+    flex-shrink: 0;
+    margin-block-start: 2px;
+    color: var(--color-primary);
+  }
+
+  .env-notice strong {
+    color: var(--color-text);
+    font-weight: 600;
+  }
+
+  .env-notice code {
+    font-family: var(--font-mono, monospace);
+    font-size: 0.85em;
+    background: var(--color-surface-container-high, rgba(127, 127, 127, 0.12));
+    padding: 1px 5px;
+    border-radius: 4px;
   }
 
   .form-fields {
