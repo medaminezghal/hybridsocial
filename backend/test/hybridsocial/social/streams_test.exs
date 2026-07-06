@@ -3,6 +3,7 @@ defmodule Hybridsocial.Social.StreamsTest do
 
   alias Hybridsocial.Social.Streams
   alias Hybridsocial.Social.{Post, StreamView}
+  alias Hybridsocial.Media.MediaFile
 
   defp create_post(identity, attrs \\ %{}) do
     defaults = %{
@@ -15,6 +16,21 @@ defmodule Hybridsocial.Social.StreamsTest do
     %Post{}
     |> Post.create_changeset(Map.merge(defaults, attrs))
     |> Repo.insert!()
+  end
+
+  # Attach a qualifying video to a post so it can appear in the streams
+  # feed (which requires a non-deleted video attachment >= min_duration).
+  defp attach_video(post, identity, duration \\ 30.0) do
+    Repo.insert!(%MediaFile{
+      identity_id: identity.id,
+      post_id: post.id,
+      content_type: "video/mp4",
+      file_size: 1_000,
+      storage_path: "test/#{post.id}.mp4",
+      duration: duration
+    })
+
+    post
   end
 
   describe "record_view/3" do
@@ -112,34 +128,61 @@ defmodule Hybridsocial.Social.StreamsTest do
   end
 
   describe "streams_feed/2" do
-    test "returns only video_stream posts" do
+    test "includes any public post with a qualifying video, regardless of post_type" do
       alice = create_user("sfeed_alice", "sfeed_alice@example.com")
-      video = create_post(alice, %{post_type: "video_stream", content: "My reel"})
-      _text = create_post(alice, %{post_type: "text", content: "My text"})
 
-      posts = Streams.streams_feed(nil)
-      ids = Enum.map(posts, & &1.id)
+      reel =
+        create_post(alice, %{post_type: "video_stream", content: "My reel"})
+        |> attach_video(alice)
 
-      assert video.id in ids
-      refute Enum.any?(ids, fn id -> id == _text.id end)
+      # A regular (e.g. imported/federated) post that just happens to
+      # carry a video — this is the case the old post_type gate hid.
+      imported =
+        create_post(alice, %{post_type: "text", content: "Imported clip"}) |> attach_video(alice)
+
+      text_only = create_post(alice, %{post_type: "text", content: "Just text"})
+
+      ids = Streams.streams_feed(nil) |> Enum.map(& &1.id)
+
+      assert reel.id in ids
+      assert imported.id in ids
+      refute text_only.id in ids
+    end
+
+    test "excludes videos shorter than the minimum duration" do
+      alice = create_user("sfeed_dur", "sfeed_dur@example.com")
+      short = create_post(alice, %{content: "Too short"}) |> attach_video(alice, 5.0)
+
+      ids = Streams.streams_feed(nil) |> Enum.map(& &1.id)
+      refute short.id in ids
+    end
+
+    test "excludes sensitive and content-warned posts" do
+      alice = create_user("sfeed_cw", "sfeed_cw@example.com")
+      nsfw = create_post(alice, %{content: "nsfw", sensitive: true}) |> attach_video(alice)
+      cw = create_post(alice, %{content: "cw", spoiler_text: "spoiler"}) |> attach_video(alice)
+
+      ids = Streams.streams_feed(nil) |> Enum.map(& &1.id)
+      refute nsfw.id in ids
+      refute cw.id in ids
     end
 
     test "returns only public posts" do
       alice = create_user("sfeed_pub", "sfeed_pub@example.com")
-      _private = create_post(alice, %{visibility: "followers", content: "Private reel"})
 
-      posts = Streams.streams_feed(nil)
-      assert posts == []
+      create_post(alice, %{visibility: "followers", content: "Private reel"})
+      |> attach_video(alice)
+
+      assert Streams.streams_feed(nil) == []
     end
 
     test "excludes deleted posts" do
       alice = create_user("sfeed_del", "sfeed_del@example.com")
-      post = create_post(alice, %{content: "Deleted reel"})
+      post = create_post(alice, %{content: "Deleted reel"}) |> attach_video(alice)
 
       post |> Post.soft_delete_changeset() |> Repo.update!()
 
-      posts = Streams.streams_feed(nil)
-      ids = Enum.map(posts, & &1.id)
+      ids = Streams.streams_feed(nil) |> Enum.map(& &1.id)
       refute post.id in ids
     end
 
@@ -147,7 +190,7 @@ defmodule Hybridsocial.Social.StreamsTest do
       alice = create_user("sfeed_lim", "sfeed_lim@example.com")
 
       for i <- 1..5 do
-        create_post(alice, %{content: "Reel #{i}"})
+        create_post(alice, %{content: "Reel #{i}"}) |> attach_video(alice)
       end
 
       posts = Streams.streams_feed(nil, limit: 3)
