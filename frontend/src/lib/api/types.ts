@@ -814,6 +814,11 @@ export interface EmailConfig {
   smtp_port: number | null;
   smtp_username: string | null;
   smtp_ssl: boolean;
+  // True when the transport is pinned by the server environment
+  // (RESEND_API_KEY / SMTP_* in .env). Provider + connection settings
+  // are then read-only in the admin panel.
+  env_override?: boolean;
+  env_provider?: string | null;
 }
 
 export interface AdminRole {
