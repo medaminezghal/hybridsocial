@@ -11,7 +11,7 @@ defmodule Hybridsocial.Repo.Migrations.SeedDefaultPremiumReactions do
 
   @reactions [
     {"fire", "🔥", 0},
-    {"pray", "🙏", 1},
+    {"pray", "🤲", 1},
     {"broken_heart", "💔", 2},
     {"thinking", "🤔", 3},
     {"vomiting", "🤮", 4},
