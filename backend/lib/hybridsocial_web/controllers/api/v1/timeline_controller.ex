@@ -3,8 +3,19 @@ defmodule HybridsocialWeb.Api.V1.TimelineController do
 
   alias Hybridsocial.Feeds
   alias Hybridsocial.Config
+  alias Hybridsocial.Cache
   alias HybridsocialWeb.Serializers.PostSerializer
   import HybridsocialWeb.Helpers.Pagination, only: [clamp_limit: 1]
+
+  # Short cache window for the *serialized* first page of the public /
+  # global feeds. The heavy cost is the query plus per-post serialization
+  # (link-preview cards, media, counts) — for the global feed that can
+  # spike to seconds on a cold cache. We cache the JSON-ready payload
+  # (not Post structs, which don't survive the cache's JSON round-trip),
+  # so a warm load skips both the query and serialization. Live updates
+  # still arrive over the SSE stream, so this only shortcuts the initial
+  # load; a 30s TTL keeps it fresh enough without an invalidation hook.
+  @feed_cache_ttl 30
 
   # Timeline access levels:
   # "none"      — disallow all, require login
@@ -87,8 +98,15 @@ defmodule HybridsocialWeb.Api.V1.TimelineController do
             viewer_id: viewer_id
           )
 
-        posts = Feeds.public_timeline(opts)
-        serialized = PostSerializer.serialize_many(posts, current_identity_id: viewer_id)
+        cache_key =
+          "feed:public:ser:#{viewer_id || "anon"}:#{opts[:local_only]}:#{opts[:include_replies]}"
+
+        serialized =
+          cached_feed(cache_key, first_page?(params), fn ->
+            opts
+            |> Feeds.public_timeline()
+            |> PostSerializer.serialize_many(current_identity_id: viewer_id)
+          end)
 
         conn
         |> put_link_headers(serialized, "/api/v1/timelines/public")
@@ -201,8 +219,14 @@ defmodule HybridsocialWeb.Api.V1.TimelineController do
             viewer_id: viewer_id
           )
 
-        posts = Feeds.global_timeline(opts)
-        serialized = PostSerializer.serialize_many(posts, current_identity_id: viewer_id)
+        cache_key = "feed:global:ser:#{viewer_id || "anon"}:#{opts[:include_replies]}"
+
+        serialized =
+          cached_feed(cache_key, first_page?(params), fn ->
+            opts
+            |> Feeds.global_timeline()
+            |> PostSerializer.serialize_many(current_identity_id: viewer_id)
+          end)
 
         conn
         |> put_link_headers(serialized, "/api/v1/timelines/global")
@@ -257,23 +281,63 @@ defmodule HybridsocialWeb.Api.V1.TimelineController do
     end
   end
 
+  # Cache the serialized first page of a feed for @feed_cache_ttl seconds.
+  # `compute_fun` produces the JSON-ready payload on a miss; anything but
+  # the first page (a cursor is present) is never cached.
+  defp cached_feed(cache_key, cacheable?, compute_fun) do
+    if cacheable? do
+      case safe_cache_get(cache_key) do
+        nil ->
+          serialized = compute_fun.()
+          safe_cache_set(cache_key, serialized)
+          serialized
+
+        cached ->
+          cached
+      end
+    else
+      compute_fun.()
+    end
+  end
+
+  defp safe_cache_get(key) do
+    Cache.get(key)
+  rescue
+    _ -> nil
+  end
+
+  defp safe_cache_set(key, value) do
+    Cache.set(key, value, @feed_cache_ttl)
+  rescue
+    _ -> :ok
+  end
+
+  defp first_page?(params) do
+    is_nil(params["max_id"]) and is_nil(params["min_id"]) and is_nil(params["since_id"])
+  end
+
   defp put_link_headers(conn, posts, base_path) do
     case posts do
       [] ->
         conn
 
       posts ->
-        first = List.first(posts)
-        last = List.last(posts)
+        # Cached payloads round-trip through JSON, so entries can have
+        # string keys ("id") while fresh ones have atom keys (:id).
+        first = entry_id(List.first(posts))
+        last = entry_id(List.last(posts))
 
         links = [
-          "<#{base_path}?max_id=#{last[:id]}>; rel=\"next\"",
-          "<#{base_path}?min_id=#{first[:id]}>; rel=\"prev\""
+          "<#{base_path}?max_id=#{last}>; rel=\"next\"",
+          "<#{base_path}?min_id=#{first}>; rel=\"prev\""
         ]
 
         put_resp_header(conn, "link", Enum.join(links, ", "))
     end
   end
+
+  defp entry_id(entry) when is_map(entry), do: entry[:id] || entry["id"]
+  defp entry_id(_), do: nil
 
   # ---------------------------------------------------------------------------
   # Serialization
