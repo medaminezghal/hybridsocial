@@ -64,9 +64,13 @@ jobs:
         run: node scripts/check-i18n.mjs
 
   test:
-    name: Test
+    name: Test (partition ${{ matrix.partition }})
     runs-on: ubuntu-latest
     needs: build-and-check
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: backend/
@@ -97,7 +101,10 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: ecto://hybridsocial:hybridsocial_dev@localhost/hybridsocial_test
+      # Each partition gets its own database (hybridsocial_test1..4) via the
+      # MIX_TEST_PARTITION suffix baked into config/test.exs.
+      MIX_TEST_PARTITION: ${{ matrix.partition }}
+      DATABASE_URL: ecto://hybridsocial:hybridsocial_dev@localhost/hybridsocial_test${{ matrix.partition }}
       VALKEY_URL: redis://localhost:6379/1
 
     steps:
@@ -129,8 +136,10 @@ jobs:
       - name: Run migrations
         run: mix ecto.migrate
 
-      - name: Run tests with coverage
-        run: mix test
+      - name: Run tests
+        # --partitions splits the suite into 4 buckets; MIX_TEST_PARTITION
+        # (set per matrix job) selects which bucket this runner executes.
+        run: mix test --partitions 4
 
   security:
     name: Security
