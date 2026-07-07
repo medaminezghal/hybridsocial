@@ -50,10 +50,18 @@ defmodule Hybridsocial.Release do
       ids
       |> Enum.with_index(1)
       |> Enum.reduce(0, fn {id, idx}, acc ->
+        # Crash-safe per identity: a raise in one actor fetch (bad URL,
+        # TLS error, unexpected payload) must not abort the whole run.
         result =
-          case Repo.get(Identity, id) do
-            nil -> :error
-            identity -> Inbox.reenrich_remote_identity(identity)
+          try do
+            case Repo.get(Identity, id) do
+              nil -> :error
+              identity -> Inbox.reenrich_remote_identity(identity)
+            end
+          rescue
+            e -> {:error, e}
+          catch
+            kind, reason -> {:error, {kind, reason}}
           end
 
         Process.sleep(250)

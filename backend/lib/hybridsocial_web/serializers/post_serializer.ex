@@ -319,6 +319,8 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
       handle: identity.handle,
       acct: HybridsocialWeb.Helpers.Account.build_acct(identity),
       display_name: identity.display_name,
+      # Custom emojis so `:shortcode:` in a post author's display_name renders.
+      emojis: Map.get(identity, :emojis, []) || [],
       avatar_url: identity.avatar_url,
       header_url: Map.get(identity, :header_url, nil),
       bio: Map.get(identity, :bio, nil),
@@ -334,7 +336,9 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
       verification_tier: verification_tier,
       is_verified: verified_tier?(verification_tier),
       domain: domain,
-      url: Map.get(identity, :url, nil),
+      # Was Map.get(identity, :url) — but Identity has no :url field, so this
+      # was always nil. Use the profile_url helper (profile_url || ap_actor_url).
+      url: HybridsocialWeb.Helpers.Account.profile_url(identity),
       created_at: identity.inserted_at
     }
   end
