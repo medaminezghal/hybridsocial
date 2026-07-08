@@ -5,6 +5,7 @@
   import { mute, unmute, block, unblock } from '$lib/api/accounts.js';
   import { pinPost, unpinPost } from '$lib/api/statuses.js';
   import { get } from 'svelte/store';
+  import { on } from 'svelte/events';
   import ReactionPicker from './ReactionPicker.svelte';
   import RadialReactionPicker from './RadialReactionPicker.svelte';
   import { markSeen } from '$lib/utils/seen-posts.js';
@@ -301,27 +302,31 @@
 
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function toggleReactionPicker(e: MouseEvent) {
-    e.stopPropagation();
-    // A touch sequence already handled this interaction (long-press
-    // landed on an emoji, or the user released on the dead-zone) —
-    // the synthetic click that follows touchend would otherwise
-    // double-fire as an unintended "like". Reset and bail.
-    if (touchHandled) {
-      touchHandled = false;
-      return;
-    }
-    // If already reacted, clicking removes the reaction.
+  // Shared by the click path (mouse, keyboard) and the touchend path.
+  function applyTapReaction() {
+    // If already reacted, tapping removes the reaction.
     if (currentReaction) {
       handleReaction(currentReaction);
       return;
     }
-    // Default click leaves a 👍 (like). The picker is still reachable
-    // via hover on desktop and via long-press fallbacks elsewhere.
+    // Default tap leaves a 👍 (like). The picker is still reachable
+    // via hover on desktop and via long-press on touch.
     showReactionPicker = false;
     showMoreMenu = false;
     showReactionDetail = false;
     handleReaction('like');
+  }
+
+  function toggleReactionPicker(e: MouseEvent) {
+    e.stopPropagation();
+    // A touch sequence already handled this interaction — most UAs
+    // won't synthesize a click at all now that we cancel touchstart,
+    // but Firefox on Windows does. Guard against a double reaction.
+    if (touchHandled) {
+      touchHandled = false;
+      return;
+    }
+    applyTapReaction();
   }
 
   // The default 7 reactions every user can pick. Mirrors the canonical
@@ -387,6 +392,10 @@
     if (longPressTimer) clearTimeout(longPressTimer);
     longPressTimer = setTimeout(() => {
       longPressTimer = null;
+      // If the OS started a selection before we cancelled the gesture,
+      // drop it — otherwise iOS's selection loupe steals the touch and
+      // the browser fires touchcancel, closing the dial mid-drag.
+      window.getSelection()?.removeAllRanges();
       radialOpen = true;
       // Belt and suspenders — if the desktop picker somehow opened
       // (e.g. a stray mouseenter slipped through before suppressHover
@@ -422,6 +431,7 @@
   }
 
   function reactionTouchEnd(e: TouchEvent) {
+    const wasRadial = radialOpen;
     if (longPressTimer) {
       clearTimeout(longPressTimer);
       longPressTimer = null;
@@ -429,21 +439,35 @@
     // Keep blocking synthesized mouseenter for a moment past touchend
     // — Android Chrome fires it ~300ms after the last touch lifts.
     suppressHoverUntil = Date.now() + 800;
-    if (radialOpen) {
-      // Suppress the synthetic click that immediately follows
-      // touchend, so the toggle handler doesn't also fire "like".
-      if (e.cancelable) e.preventDefault();
-      touchHandled = true;
+
+    // Because touchstart is now cancelled for real, the browser will
+    // not synthesize mousedown/mouseup/click for this gesture (Touch
+    // Events L2 §"Mouse event dispatch"). The tap path can no longer
+    // ride on `onclick` — it has to be driven from here. `touchHandled`
+    // stays as a guard for the UAs that fire the click anyway.
+    if (e.cancelable) e.preventDefault();
+    touchHandled = true;
+
+    if (wasRadial) {
       const picked = radialHighlighted;
       radialOpen = false;
       radialHighlighted = null;
       if (picked) {
         handleReaction(picked);
       }
-      // Reset touchHandled after a microtask so the click flag
-      // remains set for the very next click but doesn't leak.
-      setTimeout(() => { touchHandled = false; }, 400);
+    } else {
+      // Short tap. A finger that travelled before releasing was a
+      // scroll attempt that never armed the dial — not a tap.
+      const t = e.changedTouches[0];
+      const dx = (t?.clientX ?? touchStartX) - touchStartX;
+      const dy = (t?.clientY ?? touchStartY) - touchStartY;
+      if (Math.hypot(dx, dy) <= SCROLL_CANCEL_PX) {
+        applyTapReaction();
+      }
     }
+
+    // Reset the flag so it doesn't leak into the next interaction.
+    setTimeout(() => { touchHandled = false; }, 400);
   }
 
   function reactionTouchCancel() {
@@ -454,6 +478,27 @@
     suppressHoverUntil = Date.now() + 800;
     radialOpen = false;
     radialHighlighted = null;
+  }
+
+  // Svelte 5 hardcodes `{ passive: true }` for `touchstart` and
+  // `touchmove` (PASSIVE_EVENTS in svelte/src/utils.js) on both the
+  // delegated and the direct listener path, so the `preventDefault()`
+  // calls in reactionTouchStart / reactionTouchMove are silently
+  // discarded. The OS long-press gesture is then never suppressed:
+  // iOS Safari starts a text selection over the post, claims the touch
+  // and fires `touchcancel`, which closes the dial mid-gesture.
+  // Bind these two by hand so they are non-passive. `touchend` and
+  // `touchcancel` are not in PASSIVE_EVENTS and stay as attributes.
+  function nonPassiveTouch(node: HTMLElement) {
+    const options: AddEventListenerOptions = { passive: false };
+    const offStart = on(node, 'touchstart', reactionTouchStart, options);
+    const offMove = on(node, 'touchmove', reactionTouchMove, options);
+    return {
+      destroy() {
+        offStart();
+        offMove();
+      },
+    };
   }
 
   let closeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -939,8 +984,7 @@
         class:bounce={bounceReaction}
         bind:this={reactionTriggerEl}
         onclick={toggleReactionPicker}
-        ontouchstart={reactionTouchStart}
-        ontouchmove={reactionTouchMove}
+        use:nonPassiveTouch
         ontouchend={reactionTouchEnd}
         ontouchcancel={reactionTouchCancel}
         oncontextmenu={(e) => e.preventDefault()}

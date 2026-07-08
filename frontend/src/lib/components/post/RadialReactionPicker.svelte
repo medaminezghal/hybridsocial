@@ -219,6 +219,12 @@
        is the source of truth for where the finger is, and we don't
        want this overlay to swallow that event. */
     pointer-events: none;
+    /* The dial owns the gesture while it is open: no text selection,
+       no iOS callout, no scroll/zoom as the finger drags across. */
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: none;
   }
 
   .radial-scrim {
