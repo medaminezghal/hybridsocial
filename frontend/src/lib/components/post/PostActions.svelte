@@ -93,6 +93,10 @@
   // synthetic click that follows touchend doesn't fall through to
   // toggleReactionPicker() and double-fire as a stray "like".
   let touchHandled = false;
+  let touchHandledTimer: ReturnType<typeof setTimeout> | null = null;
+  // Set when a second finger joins: the gesture is no longer a tap or a
+  // dial drag, and must not commit a reaction when the fingers lift.
+  let touchGestureVoid = false;
   // Wall-clock timestamp (ms epoch) up to which any pointerenter /
   // mouseenter on the wrapper is treated as a touch-synthesized event
   // and ignored. Without this, Android Chrome fires a phantom
@@ -101,6 +105,10 @@
   let suppressHoverUntil = 0;
   const LONG_PRESS_MS = 320;
   const SCROLL_CANCEL_PX = 12;
+  // How far outside the button a finger may lift and still count as a
+  // tap. Mirrors native click tolerance; independent of SCROLL_CANCEL_PX,
+  // which only decides whether the long-press is still armed.
+  const TAP_SLOP_PX = 12;
 
   // Below-vs-above flip: the picker normally renders above the like
   // button, but on a post near the top of the viewport that sends
@@ -362,8 +370,37 @@
     return [...defaultRadialReactions, ...extras].slice(0, RADIAL_MAX);
   });
 
+  // Suppress the one click a nonconformant UA may still synthesize
+  // after a touch sequence (Firefox on Windows). Re-arm rather than
+  // stack, so a second tap inside the window isn't left unguarded when
+  // the first tap's timer expires.
+  function armClickGuard() {
+    touchHandled = true;
+    if (touchHandledTimer) clearTimeout(touchHandledTimer);
+    touchHandledTimer = setTimeout(() => {
+      touchHandled = false;
+      touchHandledTimer = null;
+    }, 400);
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }
+
   function reactionTouchStart(e: TouchEvent) {
-    if (e.touches.length !== 1) return;
+    if (e.touches.length !== 1) {
+      // A second finger landed. Abandon the whole gesture: pinch-zoom
+      // and two-finger taps must not leave a reaction behind.
+      touchGestureVoid = true;
+      cancelLongPress();
+      radialOpen = false;
+      radialHighlighted = null;
+      return;
+    }
+    touchGestureVoid = false;
     // Suppress the native long-press menu (Copy / Share / Select all
     // on Android; the iOS callout). Without this, the OS hijacks the
     // gesture mid-hold and pops a text-selection toolbar over the
@@ -394,8 +431,17 @@
       longPressTimer = null;
       // If the OS started a selection before we cancelled the gesture,
       // drop it — otherwise iOS's selection loupe steals the touch and
-      // the browser fires touchcancel, closing the dial mid-drag.
-      window.getSelection()?.removeAllRanges();
+      // the browser fires touchcancel, closing the dial mid-drag. Never
+      // touch a selection the user is holding inside a field: in Chrome
+      // removeAllRanges() clears a focused textarea's selection too.
+      const active = document.activeElement;
+      const editing =
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && active.isContentEditable);
+      if (!editing) {
+        window.getSelection()?.removeAllRanges();
+      }
       radialOpen = true;
       // Belt and suspenders — if the desktop picker somehow opened
       // (e.g. a stray mouseenter slipped through before suppressHover
@@ -432,10 +478,7 @@
 
   function reactionTouchEnd(e: TouchEvent) {
     const wasRadial = radialOpen;
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
-    }
+    cancelLongPress();
     // Keep blocking synthesized mouseenter for a moment past touchend
     // — Android Chrome fires it ~300ms after the last touch lifts.
     suppressHoverUntil = Date.now() + 800;
@@ -446,7 +489,15 @@
     // ride on `onclick` — it has to be driven from here. `touchHandled`
     // stays as a guard for the UAs that fire the click anyway.
     if (e.cancelable) e.preventDefault();
-    touchHandled = true;
+    armClickGuard();
+
+    // Fingers still down, or a second one joined earlier: this was
+    // never a tap and never a dial commit. Bail without reacting.
+    if (touchGestureVoid || e.touches.length > 0) {
+      radialOpen = false;
+      radialHighlighted = null;
+      return;
+    }
 
     if (wasRadial) {
       const picked = radialHighlighted;
@@ -456,26 +507,34 @@
         handleReaction(picked);
       }
     } else {
-      // Short tap. A finger that travelled before releasing was a
-      // scroll attempt that never armed the dial — not a tap.
+      // Short tap. Reproduce native click semantics — the browser fires
+      // a click when the finger lifts over the element it started on,
+      // however much it wobbled in between — rather than measuring
+      // travel from the start point, which would lose the taps of large
+      // thumbs and shaky hands. A deliberate drag away still cancels,
+      // since touchend targets the origin element wherever the finger
+      // ended up. Screen readers may send touchend with no coordinates
+      // at all; treat that as a tap on the button.
       const t = e.changedTouches[0];
-      const dx = (t?.clientX ?? touchStartX) - touchStartX;
-      const dy = (t?.clientY ?? touchStartY) - touchStartY;
-      if (Math.hypot(dx, dy) <= SCROLL_CANCEL_PX) {
+      const x = t?.clientX ?? touchStartX;
+      const y = t?.clientY ?? touchStartY;
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const releasedOnButton =
+        x >= r.left - TAP_SLOP_PX && x <= r.right + TAP_SLOP_PX &&
+        y >= r.top - TAP_SLOP_PX && y <= r.bottom + TAP_SLOP_PX;
+      if (releasedOnButton) {
         applyTapReaction();
       }
     }
 
-    // Reset the flag so it doesn't leak into the next interaction.
-    setTimeout(() => { touchHandled = false; }, 400);
   }
 
   function reactionTouchCancel() {
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      longPressTimer = null;
-    }
+    cancelLongPress();
     suppressHoverUntil = Date.now() + 800;
+    // The gesture was taken away from us; no click that follows is one
+    // the user meant as a tap.
+    armClickGuard();
     radialOpen = false;
     radialHighlighted = null;
   }
