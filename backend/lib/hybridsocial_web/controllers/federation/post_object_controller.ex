@@ -22,9 +22,6 @@ defmodule HybridsocialWeb.Federation.PostObjectController do
 
   @public_visibilities ~w(public unlisted)
 
-  # sobelow_skip ["XSS.ContentType"]
-  # Safe: negotiated_content_type/1 returns one of two module
-  # attributes — no user input reaches the content-type header.
   def show(conn, %{"id" => id}) do
     # Browsers that follow a federated "View original" link don't ask
     # for AP — they ask for `text/html`. Without a redirect they used
@@ -40,6 +37,12 @@ defmodule HybridsocialWeb.Federation.PostObjectController do
     end
   end
 
+  # sobelow_skip ["XSS.ContentType"]
+  # Safe: negotiated_content_type/1 returns one of two fixed module
+  # attributes (@ld_content_type / @ap_content_type). The request Accept
+  # header is only pattern-matched, never echoed into the response, so no
+  # user input reaches the content-type header. (The annotation belongs on
+  # THIS function — put_resp_content_type is called here, not in show/2.)
   defp serve_activity_pub(conn, id) do
     with post when not is_nil(post) <- Posts.get_post_with_context(id),
          true <- public?(post) do
