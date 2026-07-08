@@ -1357,13 +1357,15 @@
     padding: 16px;
   }
 
-  /* Mobile: reclaim horizontal space so the post body uses the full width.
-     Two levers: (1) tighter card padding + gap; (2) the real win — pull the
-     text/media BODY back under the avatar. On desktop the whole content
-     column (author line + text + media) is indented past the 48px avatar,
-     which on a phone leaves the text in a thin column that wraps into far
-     more lines than needed. Here the author line stays beside the avatar,
-     but the body extends to the card edge. */
+  /* Mobile: let the post body use the full card width. On desktop the whole
+     content column (author line + text + media) is indented past the 48px
+     avatar, which on a phone squeezes the text into a thin column that wraps
+     into far more lines than needed. Rather than pull the body with fragile
+     negative margins (which over/under-shot and, worse, flipped sides on
+     RTL content), take the avatar OUT of the flow: absolutely position it
+     top-left so the content column becomes a full-width block. The body is
+     then laid out normally (no magic offset, can't crop). Only the author
+     line is padded to clear the avatar. */
   @media (max-width: 768px) {
     .post-card,
     .post-card.detail,
@@ -1372,30 +1374,30 @@
     }
 
     .post-layout {
-      gap: 10px;
+      display: block;
+      position: relative;
     }
 
-    /* Match the avatar to the author-line height so the body (pulled left
-       below it) never rides up onto the avatar. */
+    .post-avatar {
+      position: absolute;
+      top: 0;
+      /* Physical left: the avatar is always on the left in this LTR layout,
+         even when the post text is RTL. */
+      left: 0;
+    }
+
     .avatar-img,
     .avatar-placeholder {
-      width: 40px;
-      height: 40px;
+      width: 44px;
+      height: 44px;
     }
 
+    /* Clear the absolutely-positioned avatar for the header rows only; the
+       body below spans the full width. 52px = avatar (44) + ~8px gap. */
+    .post-pinned-indicator,
     .post-author-line {
-      min-height: 40px;
-    }
-
-    /* Pull the body left, under the avatar, to span the full width.
-       PHYSICAL margin-left (not margin-inline-start): the avatar is always
-       physically on the left, but the post body has auto text-direction, so
-       a logical inline-start flips to the RIGHT for Arabic/RTL content and
-       shoves it off the right edge. 50px = avatar (40) + gap (10). */
-    .post-content,
-    .media-grid,
-    .post-poll {
-      margin-left: -50px;
+      padding-left: 52px;
+      min-height: 44px;
     }
   }
 
