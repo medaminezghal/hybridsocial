@@ -75,11 +75,28 @@ defmodule Hybridsocial.Search do
   end
 
   @doc """
-  Search hashtags. Uses the configured backend with PostgreSQL fallback.
+  Search hashtags — always via PostgreSQL.
+
+  Hashtags are a small, bounded table that is the source of truth (trending
+  reads it too) and is always current. The pluggable OpenSearch/Meilisearch
+  hashtag index is only populated by a full reindex — new tags never land in
+  it and an empty index returns `{:ok, []}`, which the do_search fallback
+  treats as a *successful* empty result (no fallback). That made hashtag
+  search + composer autocomplete come back empty on OpenSearch deployments.
+  A direct Postgres ILIKE on the small hashtags table is fast and correct,
+  so we skip the external index for hashtags entirely.
   """
   def search_hashtags(query_string, opts \\ []) do
     sanitized = sanitize_query(query_string)
-    if sanitized == "", do: [], else: do_search(:search_hashtags, [sanitized, opts])
+
+    if sanitized == "" do
+      []
+    else
+      case Hybridsocial.Search.Backends.PostgresqlBackend.search_hashtags(sanitized, opts) do
+        {:ok, results} -> results
+        _ -> []
+      end
+    end
   end
 
   @doc """
