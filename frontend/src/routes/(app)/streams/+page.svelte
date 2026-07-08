@@ -8,10 +8,10 @@
   let loading = $state(true);
   let error = $state('');
 
-  // Per-post caption expand + whether the caption actually overflows the
-  // clamp (so we only show the "Show more" toggle when there's more).
+  // Per-post description open/closed. Descriptions are hidden in the feed
+  // by default and only revealed when the viewer opens one (collapsible on
+  // click/tap), so a card stays a video-first card.
   let expanded = $state<Record<string, boolean>>({});
-  let overflowing = $state<Record<string, boolean>>({});
 
   // Track which posts we've already reported a view for so we don't
   // double-count the initial `play` event.
@@ -42,16 +42,6 @@
 
   function toggleExpand(id: string) {
     expanded = { ...expanded, [id]: !expanded[id] };
-  }
-
-  // Measure once (while clamped, since expanded starts false) whether the
-  // caption exceeds the clamp; drives the "Show more" toggle visibility.
-  function measureClamp(node: HTMLElement, id: string) {
-    requestAnimationFrame(() => {
-      const isOver = node.scrollHeight - node.clientHeight > 4;
-      if (overflowing[id] !== isOver) overflowing = { ...overflowing, [id]: isOver };
-    });
-    return {};
   }
 
   async function loadStreams() {
@@ -199,17 +189,28 @@
           {/if}
           {#if post.content_html || post.content}
             <div class="stream-caption">
-              <div
-                class="stream-content"
-                class:clamped={!expanded[post.id]}
-                use:measureClamp={post.id}
+              <button
+                type="button"
+                class="caption-toggle"
+                aria-expanded={!!expanded[post.id]}
+                aria-controls={`stream-desc-${post.id}`}
+                onclick={() => toggleExpand(post.id)}
               >
-                {#if post.content_html}{@html post.content_html}{:else}<p>{post.content}</p>{/if}
-              </div>
-              {#if overflowing[post.id]}
-                <button type="button" class="caption-toggle" onclick={() => toggleExpand(post.id)}>
-                  {expanded[post.id] ? 'Show less' : 'Show more'}
-                </button>
+                <svg
+                  class="caption-chevron"
+                  class:open={expanded[post.id]}
+                  width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+                {expanded[post.id] ? 'Hide description' : 'Show description'}
+              </button>
+              {#if expanded[post.id]}
+                <div id={`stream-desc-${post.id}`} class="stream-content">
+                  {#if post.content_html}{@html post.content_html}{:else}<p>{post.content}</p>{/if}
+                </div>
               {/if}
             </div>
           {/if}
@@ -335,26 +336,20 @@
   }
 
   .stream-content {
-    padding: var(--space-3) var(--space-4);
+    padding: 0 var(--space-4) var(--space-3);
     font-size: var(--text-sm);
     color: var(--color-text);
     line-height: var(--leading-relaxed);
     overflow-wrap: anywhere;
   }
 
-  /* Clamp long captions (imported posts can be many paragraphs) so a
-     card stays a card. The toggle below reveals the rest. */
-  .stream-content.clamped {
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
+  /* The description is collapsed by default — only this toggle shows under
+     the video. Tapping it reveals the (collapsible) description. */
   .caption-toggle {
-    display: block;
-    margin: 0 var(--space-4) var(--space-3);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin: var(--space-2) var(--space-4);
     padding: 0;
     background: none;
     border: none;
@@ -366,6 +361,26 @@
 
   .caption-toggle:hover {
     color: var(--color-primary);
+  }
+
+  .caption-toggle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  .caption-chevron {
+    transition: transform 0.15s ease;
+  }
+
+  .caption-chevron.open {
+    transform: rotate(180deg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .caption-chevron {
+      transition: none;
+    }
   }
 
   .stream-content :global(a) {

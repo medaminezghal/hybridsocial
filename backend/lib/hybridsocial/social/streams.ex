@@ -4,6 +4,7 @@ defmodule Hybridsocial.Social.Streams do
   """
   import Ecto.Query
 
+  alias Hybridsocial.Accounts.Identity
   alias Hybridsocial.Repo
   alias Hybridsocial.Social.{StreamView, Post}
 
@@ -91,30 +92,35 @@ defmodule Hybridsocial.Social.Streams do
     min_duration = Keyword.get(opts, :min_duration_seconds, 15.0)
 
     # Streams surfaces public video to everyone, including signed-out
-    # viewers. We deliberately do NOT gate on post_type == "video_stream"
-    # here: the composer only tags all-video *local* posts that way, so
-    # gating on it hid the (much larger) pool of federated/imported video
-    # posts. Membership is defined purely by "has a qualifying video",
-    # which also means future imports appear automatically. Excludes:
+    # viewers. Membership is defined by "a LOCAL author posted a public
+    # post carrying a qualifying VERTICAL video". Excludes:
+    #   - remote/federated authors — streams is our own local video feed
+    #     (join Identity + is_local == true). See issue #22.
     #   - sensitive (NSFW) posts
     #   - posts with a content warning (spoiler_text)
+    #   - non-portrait video: only height > width (strictly vertical) is
+    #     eligible; horizontal AND square clips are excluded. Videos whose
+    #     dimensions weren't captured (NULL width/height) are excluded too,
+    #     since we can't prove they're vertical.
     #   - posts whose video attachment is shorter than `min_duration`
     #     seconds (default 15) — the format is meant for short *clips*,
     #     not micro-bursts that flash by before the page can render the
     #     next one.
-    # The duration check joins the media table since duration lives
-    # there per-attachment; the EXISTS form keeps the join from
+    # The video predicate joins the media table (duration + dimensions
+    # live there per-attachment); the EXISTS form keeps the join from
     # multiplying rows on posts with multiple media.
     query =
       Post
+      |> join(:inner, [p], i in Identity, on: i.id == p.identity_id)
       |> where([p], p.visibility == "public")
       |> where([p], is_nil(p.deleted_at))
       |> where([p], p.sensitive == false)
       |> where([p], is_nil(p.spoiler_text) or p.spoiler_text == "")
+      |> where([_p, i], i.is_local == true)
       |> where(
         [p],
         fragment(
-          "EXISTS (SELECT 1 FROM media m WHERE m.post_id = ? AND m.deleted_at IS NULL AND m.content_type LIKE 'video/%' AND (m.duration IS NULL OR m.duration >= ?))",
+          "EXISTS (SELECT 1 FROM media m WHERE m.post_id = ? AND m.deleted_at IS NULL AND m.content_type LIKE 'video/%' AND m.width IS NOT NULL AND m.height IS NOT NULL AND m.height > m.width AND (m.duration IS NULL OR m.duration >= ?))",
           p.id,
           ^min_duration
         )
