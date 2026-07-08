@@ -1,6 +1,7 @@
 defmodule Hybridsocial.Social.StreamsTest do
   use Hybridsocial.DataCase, async: false
 
+  alias Hybridsocial.Accounts.Identity
   alias Hybridsocial.Social.Streams
   alias Hybridsocial.Social.{Post, StreamView}
   alias Hybridsocial.Media.MediaFile
@@ -19,18 +20,31 @@ defmodule Hybridsocial.Social.StreamsTest do
   end
 
   # Attach a qualifying video to a post so it can appear in the streams
-  # feed (which requires a non-deleted video attachment >= min_duration).
-  defp attach_video(post, identity, duration \\ 30.0) do
+  # feed (which requires a non-deleted, VERTICAL video >= min_duration).
+  # Defaults are a 30s portrait clip (720x1280); pass :duration/:width/
+  # :height to exercise the duration and orientation filters.
+  defp attach_video(post, identity, opts \\ []) do
     Repo.insert!(%MediaFile{
       identity_id: identity.id,
       post_id: post.id,
       content_type: "video/mp4",
       file_size: 1_000,
       storage_path: "test/#{post.id}.mp4",
-      duration: duration
+      duration: Keyword.get(opts, :duration, 30.0),
+      width: Keyword.get(opts, :width, 720),
+      height: Keyword.get(opts, :height, 1280)
     })
 
     post
+  end
+
+  # Flip an already-created author to a federated (remote) identity so we
+  # can assert the streams feed's local-only filter.
+  defp make_remote(identity) do
+    {1, _} =
+      Repo.update_all(from(i in Identity, where: i.id == ^identity.id), set: [is_local: false])
+
+    identity
   end
 
   describe "record_view/3" do
@@ -128,30 +142,71 @@ defmodule Hybridsocial.Social.StreamsTest do
   end
 
   describe "streams_feed/2" do
-    test "includes any public post with a qualifying video, regardless of post_type" do
+    test "includes any local public post with a qualifying vertical video, regardless of post_type" do
       alice = create_user("sfeed_alice", "sfeed_alice@example.com")
 
       reel =
         create_post(alice, %{post_type: "video_stream", content: "My reel"})
         |> attach_video(alice)
 
-      # A regular (e.g. imported/federated) post that just happens to
-      # carry a video — this is the case the old post_type gate hid.
-      imported =
-        create_post(alice, %{post_type: "text", content: "Imported clip"}) |> attach_video(alice)
+      # A non-video_stream local post that just happens to carry a
+      # qualifying video still belongs — membership is by "has a vertical
+      # video", not post_type.
+      plain =
+        create_post(alice, %{post_type: "text", content: "Plain clip"}) |> attach_video(alice)
 
       text_only = create_post(alice, %{post_type: "text", content: "Just text"})
 
       ids = Streams.streams_feed(nil) |> Enum.map(& &1.id)
 
       assert reel.id in ids
-      assert imported.id in ids
+      assert plain.id in ids
       refute text_only.id in ids
+    end
+
+    test "excludes remote (federated) authors — local videos only (issue #22)" do
+      remote = create_user("sfeed_remote", "sfeed_remote@example.com") |> make_remote()
+      remote_reel = create_post(remote, %{content: "Remote reel"}) |> attach_video(remote)
+
+      local = create_user("sfeed_local", "sfeed_local@example.com")
+      local_reel = create_post(local, %{content: "Local reel"}) |> attach_video(local)
+
+      ids = Streams.streams_feed(nil) |> Enum.map(& &1.id)
+      assert local_reel.id in ids
+      refute remote_reel.id in ids
+    end
+
+    test "excludes horizontal and square videos — vertical only" do
+      alice = create_user("sfeed_orient", "sfeed_orient@example.com")
+
+      vertical = create_post(alice, %{content: "Portrait"}) |> attach_video(alice)
+
+      landscape =
+        create_post(alice, %{content: "Landscape"})
+        |> attach_video(alice, width: 1920, height: 1080)
+
+      square =
+        create_post(alice, %{content: "Square"}) |> attach_video(alice, width: 1080, height: 1080)
+
+      ids = Streams.streams_feed(nil) |> Enum.map(& &1.id)
+      assert vertical.id in ids
+      refute landscape.id in ids
+      refute square.id in ids
+    end
+
+    test "excludes videos with unknown (NULL) dimensions" do
+      alice = create_user("sfeed_nodim", "sfeed_nodim@example.com")
+
+      nodim =
+        create_post(alice, %{content: "No dims"}) |> attach_video(alice, width: nil, height: nil)
+
+      ids = Streams.streams_feed(nil) |> Enum.map(& &1.id)
+      refute nodim.id in ids
     end
 
     test "excludes videos shorter than the minimum duration" do
       alice = create_user("sfeed_dur", "sfeed_dur@example.com")
-      short = create_post(alice, %{content: "Too short"}) |> attach_video(alice, 5.0)
+      short = create_post(alice, %{content: "Too short"}) |> attach_video(alice, duration: 5.0)
 
       ids = Streams.streams_feed(nil) |> Enum.map(& &1.id)
       refute short.id in ids
