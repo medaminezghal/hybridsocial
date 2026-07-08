@@ -136,6 +136,10 @@ defmodule HybridsocialWeb.MediaProxyController do
     end
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
+  # Safe: tmp_path comes from new_tmp_path/0 — the fixed uploads dir joined
+  # with a crypto.strong_rand_bytes URL-base64 name ([A-Za-z0-9_-] only, no
+  # path separators or dots). No request data reaches the file path.
   defp stream_remote_to_tmp(url) do
     headers = [
       {"User-Agent", "HybridSocial MediaProxy/0.1.0"},
@@ -220,6 +224,9 @@ defmodule HybridsocialWeb.MediaProxyController do
     end
   end
 
+  # sobelow_skip ["Traversal.FileModule"]
+  # Safe: dir is Local.uploads_dir() joined with fixed literals, and the
+  # file name is a crypto-random base64 token. No user input in the path.
   defp new_tmp_path do
     dir = Path.join([Local.uploads_dir(), "proxy_cache", ".tmp"])
 
