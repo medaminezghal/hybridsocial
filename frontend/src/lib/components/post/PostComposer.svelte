@@ -854,6 +854,51 @@
   let hashtagAtPos = $state(0);
   let hashtagDebounce: ReturnType<typeof setTimeout> | null = null;
 
+  // Caret-anchored position for the mention/hashtag popup so it sits right
+  // under the word being typed rather than at the bottom of a tall textarea.
+  let acTop = $state(0);
+  let acLeft = $state(0);
+
+  function updateAcPos() {
+    if (!textareaEl) return;
+    const c = caretCoords(textareaEl, textareaEl.selectionStart);
+    const cs = getComputedStyle(textareaEl);
+    const lh = parseFloat(cs.lineHeight) || 20;
+    acTop = c.top - textareaEl.scrollTop + lh + 4;
+    // Clamp so the popup never spills past the textarea's right edge.
+    const maxLeft = Math.max(0, textareaEl.clientWidth - 240);
+    acLeft = Math.min(Math.max(0, c.left - textareaEl.scrollLeft), maxLeft);
+  }
+
+  // Mirror-div caret measurement: render the text up to the caret in a
+  // hidden div that copies the textarea's box + font metrics, then read a
+  // marker span's offset to get the caret's pixel position in the textarea.
+  function caretCoords(el: HTMLTextAreaElement, position: number): { top: number; left: number } {
+    const div = document.createElement('div');
+    const cs = getComputedStyle(el);
+    const copy = [
+      'boxSizing', 'width', 'borderTopWidth', 'borderLeftWidth',
+      'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+      'fontStyle', 'fontVariant', 'fontWeight', 'fontStretch', 'fontSize',
+      'lineHeight', 'fontFamily', 'textAlign', 'textIndent', 'letterSpacing',
+      'wordSpacing', 'tabSize',
+    ];
+    for (const p of copy) (div.style as unknown as Record<string, string>)[p] = (cs as unknown as Record<string, string>)[p];
+    div.style.position = 'absolute';
+    div.style.visibility = 'hidden';
+    div.style.whiteSpace = 'pre-wrap';
+    div.style.wordWrap = 'break-word';
+    div.textContent = el.value.substring(0, position);
+    const span = document.createElement('span');
+    span.textContent = el.value.substring(position) || '.';
+    div.appendChild(span);
+    document.body.appendChild(div);
+    const top = span.offsetTop + parseFloat(cs.borderTopWidth || '0');
+    const left = span.offsetLeft + parseFloat(cs.borderLeftWidth || '0');
+    document.body.removeChild(div);
+    return { top, left };
+  }
+
   function handleTextareaInput() {
     autoGrow();
     detectMention();
@@ -971,6 +1016,7 @@
       const query = match[2];
       mentionAtPos = cursor - query.length;
       mentionQuery = query;
+      updateAcPos();
 
       if (query.length >= 1) {
         if (mentionDebounce) clearTimeout(mentionDebounce);
@@ -1056,6 +1102,7 @@
       const query = match[1];
       hashtagAtPos = cursor - query.length;
       hashtagQuery = query;
+      updateAcPos();
 
       // Fire after 2 letters, per the request ("first 2-3 letters").
       if (query.length >= 2) {
@@ -1505,7 +1552,7 @@
           ></textarea>
 
           {#if mentionActive && mentionSuggestions.length > 0}
-            <div class="mention-dropdown" role="listbox" aria-label="Mention suggestions">
+            <div class="mention-dropdown" role="listbox" aria-label="Mention suggestions" style="top: {acTop}px; left: {acLeft}px;">
               {#each mentionSuggestions as account, i (account.id)}
                 <button
                   type="button"
@@ -1531,7 +1578,7 @@
           {/if}
 
           {#if hashtagActive && hashtagSuggestions.length > 0}
-            <div class="mention-dropdown" role="listbox" aria-label="Hashtag suggestions">
+            <div class="mention-dropdown" role="listbox" aria-label="Hashtag suggestions" style="top: {acTop}px; left: {acLeft}px;">
               {#each hashtagSuggestions as tag, i (tag.name)}
                 <button
                   type="button"
@@ -3057,16 +3104,17 @@
   }
 
   .mention-dropdown {
+    /* top/left are set inline from the caret position so the popup opens
+       right under the word being typed (not at the bottom of the box). */
     position: absolute;
-    left: 0;
-    right: 0;
-    top: 100%;
-    margin-top: 4px;
+    min-width: 240px;
+    max-width: min(320px, 100%);
+    max-height: 240px;
+    overflow-y: auto;
     background: var(--color-surface-container-lowest, #fff);
     border: 1px solid rgba(188, 201, 200, 0.25);
     border-radius: 12px;
     box-shadow: 0 4px 16px rgba(25, 28, 29, 0.1);
-    overflow: hidden;
     z-index: 50;
   }
 
