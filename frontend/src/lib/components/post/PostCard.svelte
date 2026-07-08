@@ -1357,10 +1357,13 @@
     padding: 16px;
   }
 
-  /* Mobile: the desktop 24px card padding + 16px avatar gap eat a big
-     chunk of a narrow screen, squeezing the text into a thin column that
-     wraps into far more lines than needed. Tighten the horizontal padding
-     and the gap so the text uses the width available. */
+  /* Mobile: reclaim horizontal space so the post body uses the full width.
+     Two levers: (1) tighter card padding + gap; (2) the real win — pull the
+     text/media BODY back under the avatar. On desktop the whole content
+     column (author line + text + media) is indented past the 48px avatar,
+     which on a phone leaves the text in a thin column that wraps into far
+     more lines than needed. Here the author line stays beside the avatar,
+     but the body extends to the card edge. */
   @media (max-width: 768px) {
     .post-card,
     .post-card.detail,
@@ -1370,6 +1373,27 @@
 
     .post-layout {
       gap: 10px;
+    }
+
+    /* Match the avatar to the author-line height so the body (pulled left
+       below it) never rides up onto the avatar. */
+    .avatar-img,
+    .avatar-placeholder {
+      width: 40px;
+      height: 40px;
+    }
+
+    .post-author-line {
+      min-height: 40px;
+    }
+
+    /* -50px = avatar (40) + gap (10): pulls the body to the card's inner
+       edge, spanning the full width. body's overflow-x is clipped globally
+       so a rounding overshoot can't cause a horizontal scroll. */
+    .post-content,
+    .media-grid,
+    .post-poll {
+      margin-inline-start: -50px;
     }
   }
 
