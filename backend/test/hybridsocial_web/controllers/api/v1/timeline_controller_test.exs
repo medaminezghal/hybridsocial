@@ -178,6 +178,85 @@ defmodule HybridsocialWeb.Api.V1.TimelineControllerTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Global Timeline (prewarmed snapshot + per-viewer overlay)
+  # ---------------------------------------------------------------------------
+
+  describe "GET /api/v1/timelines/global" do
+    test "returns public posts without authentication", %{conn: conn} do
+      alice = create_user("glob_alice", "glob_alice@example.com")
+      post = create_post(alice, %{content: "Global post", visibility: "public"})
+
+      conn = get(conn, "/api/v1/timelines/global")
+
+      response = json_response(conn, 200)
+      assert is_list(response)
+      assert Enum.any?(response, fn p -> p["id"] == post.id end)
+    end
+
+    test "excludes non-public posts", %{conn: conn} do
+      alice = create_user("glob_alice2", "glob_alice2@example.com")
+      private = create_post(alice, %{content: "Private", visibility: "followers"})
+
+      conn = get(conn, "/api/v1/timelines/global")
+
+      response = json_response(conn, 200)
+      refute Enum.any?(response, fn p -> p["id"] == private.id end)
+    end
+
+    test "serves the first page from a cached snapshot", %{conn: conn} do
+      alice = create_user("glob_alice3", "glob_alice3@example.com")
+      first = create_post(alice, %{content: "First"})
+
+      # First request computes and caches the snapshot.
+      resp1 = get(conn, "/api/v1/timelines/global") |> json_response(200)
+      assert Enum.any?(resp1, &(&1["id"] == first.id))
+
+      # A post created afterwards must NOT appear until the snapshot is
+      # refreshed — proving the response came from the warm snapshot, not
+      # a fresh query.
+      second = create_post(alice, %{content: "Second"})
+      resp2 = build_conn() |> get("/api/v1/timelines/global") |> json_response(200)
+      refute Enum.any?(resp2, &(&1["id"] == second.id))
+    end
+
+    test "overlays the viewer's own reaction and bookmark onto the snapshot",
+         %{conn: conn} do
+      author = create_user("glob_author", "glob_author@example.com")
+      viewer = create_user("glob_viewer", "glob_viewer@example.com")
+      post = create_post(author, %{content: "React to me"})
+
+      {:ok, _} = Hybridsocial.Social.Posts.react(post.id, viewer.id, "like")
+      {:ok, _} = Hybridsocial.Social.Bookmarks.bookmark(viewer.id, post.id)
+
+      response =
+        conn
+        |> authenticate(viewer)
+        |> get("/api/v1/timelines/global")
+        |> json_response(200)
+
+      entry = Enum.find(response, &(&1["id"] == post.id))
+      assert entry["current_user_reaction"] == "like"
+      assert entry["is_bookmarked"] == true
+      assert Enum.any?(entry["reactions"], &(&1["name"] == "like" and &1["me"] == true))
+    end
+
+    test "anonymous viewer sees no personal reaction state", %{conn: conn} do
+      author = create_user("glob_author2", "glob_author2@example.com")
+      reactor = create_user("glob_reactor2", "glob_reactor2@example.com")
+      post = create_post(author, %{content: "Popular"})
+      {:ok, _} = Hybridsocial.Social.Posts.react(post.id, reactor.id, "like")
+
+      response = get(conn, "/api/v1/timelines/global") |> json_response(200)
+      entry = Enum.find(response, &(&1["id"] == post.id))
+
+      assert entry["current_user_reaction"] == nil
+      assert entry["is_bookmarked"] == false
+      # Count is viewer-independent and still reflects the reaction.
+      assert Enum.any?(entry["reactions"], &(&1["name"] == "like" and &1["me"] == false))
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Hashtag Timeline
   # ---------------------------------------------------------------------------
 
@@ -206,6 +285,22 @@ defmodule HybridsocialWeb.Api.V1.TimelineControllerTest do
 
       response = json_response(conn, 200)
       assert response == []
+    end
+
+    test "overlays the viewer's own reaction onto the snapshot", %{conn: conn} do
+      author = create_user("tag_author", "tag_author@example.com")
+      viewer = create_user("tag_viewer", "tag_viewer@example.com")
+      post = create_post(author, %{content: "Tagged #elixir post"})
+      {:ok, _} = Hybridsocial.Social.Posts.react(post.id, viewer.id, "love")
+
+      response =
+        conn
+        |> authenticate(viewer)
+        |> get("/api/v1/timelines/tag/elixir")
+        |> json_response(200)
+
+      entry = Enum.find(response, &(&1["id"] == post.id))
+      assert entry["current_user_reaction"] == "love"
     end
   end
 end

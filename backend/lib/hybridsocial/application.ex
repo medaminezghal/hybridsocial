@@ -38,6 +38,9 @@ defmodule Hybridsocial.Application do
             Hybridsocial.Trending.Worker,
             Hybridsocial.Search.IndexWorker,
             Hybridsocial.Feeds.SignalWorker,
+            # Keeps the global + trending-hashtag feed snapshots warm so
+            # visitors skip the cold query + serialization cost.
+            Hybridsocial.Feeds.PrewarmWorker,
             # Activity expiration cleanup
             Hybridsocial.Federation.ActivityExpirationWorker,
             # Story expiry (hard-deletes expired ephemeral stories)

@@ -2,6 +2,7 @@ defmodule HybridsocialWeb.Api.V1.TimelineController do
   use HybridsocialWeb, :controller
 
   alias Hybridsocial.Feeds
+  alias Hybridsocial.Feeds.Snapshot
   alias Hybridsocial.Config
   alias Hybridsocial.Cache
   alias HybridsocialWeb.Serializers.PostSerializer
@@ -135,8 +136,24 @@ defmodule HybridsocialWeb.Api.V1.TimelineController do
           parse_pagination_params(params)
           |> Keyword.put(:viewer_id, viewer_id)
 
-        posts = Feeds.hashtag_timeline(hashtag, opts)
-        serialized = PostSerializer.serialize_many(posts, current_identity_id: viewer_id)
+        serialized =
+          if first_page?(params) do
+            # Hashtag feeds are as expensive as the global feed and had no
+            # cache at all. Popular tags are prewarmed by
+            # Feeds.PrewarmWorker; long-tail tags fall back to a lazy
+            # snapshot on first view. Either way, layer viewer state on top.
+            Snapshot.hashtag_key(hashtag)
+            |> Snapshot.fetch(fn ->
+              hashtag
+              |> Feeds.hashtag_timeline(viewer_id: nil)
+              |> PostSerializer.serialize_many(current_identity_id: nil)
+            end)
+            |> PostSerializer.apply_viewer_state(viewer_id)
+          else
+            hashtag
+            |> Feeds.hashtag_timeline(opts)
+            |> PostSerializer.serialize_many(current_identity_id: viewer_id)
+          end
 
         conn
         |> put_link_headers(serialized, "/api/v1/timelines/tag/#{hashtag}")
@@ -215,21 +232,31 @@ defmodule HybridsocialWeb.Api.V1.TimelineController do
             identity -> identity.id
           end
 
+        include_replies = params["include_replies"] == "true"
+
         opts =
           parse_pagination_params(params)
-          |> Keyword.merge(
-            include_replies: params["include_replies"] == "true",
-            viewer_id: viewer_id
-          )
-
-        cache_key = "feed:global:ser:#{viewer_id || "anon"}:#{opts[:include_replies]}"
+          |> Keyword.merge(include_replies: include_replies, viewer_id: viewer_id)
 
         serialized =
-          cached_feed(cache_key, first_page?(params), fn ->
+          if first_page?(params) do
+            # Serve the prewarmed, viewer-independent snapshot (kept hot by
+            # Feeds.PrewarmWorker) and layer this viewer's interaction
+            # state on top. Anonymous viewers get the base unchanged.
+            Snapshot.global_key(include_replies)
+            |> Snapshot.fetch(fn ->
+              [viewer_id: nil, include_replies: include_replies]
+              |> Feeds.global_timeline()
+              |> PostSerializer.serialize_many(current_identity_id: nil)
+            end)
+            |> PostSerializer.apply_viewer_state(viewer_id)
+          else
+            # Older pages (cursor present) are unbounded and personalised,
+            # so compute them fresh.
             opts
             |> Feeds.global_timeline()
             |> PostSerializer.serialize_many(current_identity_id: viewer_id)
-          end)
+          end
 
         conn
         |> put_link_headers(serialized, "/api/v1/timelines/global")
