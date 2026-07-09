@@ -1209,9 +1209,16 @@
         // the tier allows GFM. Backend honors this as "markdown: none".
         body.markdown = false;
       }
-      if (showCW && spoilerText) {
-        body.spoiler_text = spoilerText;
+      if (showCW) {
+        // The NSFW toggle marks the post sensitive on its own — the
+        // warning text is optional. Gating `sensitive` on a non-empty
+        // spoilerText meant "NSFW, no description" silently saved as a
+        // normal post (issue #52). The description is only sent when the
+        // user actually wrote one.
         body.sensitive = true;
+        if (spoilerText.trim()) {
+          body.spoiler_text = spoilerText;
+        }
       }
       if (replyTo) {
         body.parent_id = replyTo.id;
