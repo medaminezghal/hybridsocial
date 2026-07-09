@@ -15,6 +15,7 @@ export interface HomeFeedSnapshot {
   cursor: string | null;
   hasMore: boolean;
   tabId: string;
+  scrollY?: number;
 }
 
 let snapshot: HomeFeedSnapshot | null = null;

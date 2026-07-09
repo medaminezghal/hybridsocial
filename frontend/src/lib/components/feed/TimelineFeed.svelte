@@ -27,6 +27,9 @@
     cursor: string | null;
     hasMore: boolean;
     tabId: string;
+    /** Window scroll offset when the user last navigated away, so a
+     *  back-nav from a post detail returns to the same depth. */
+    scrollY?: number;
   }
 
   /**
@@ -75,8 +78,13 @@
 
   let activeTab = $derived(tabs.find((t) => t.id === activeId) ?? tabs[0]);
 
+  // Latest known window scroll offset. Kept current by handleScroll so
+  // whatever persist() writes carries the depth the user is actually at
+  // when they tap into a post.
+  let lastScrollY = cached?.scrollY ?? 0;
+
   function persist() {
-    cache?.write({ posts, cursor, hasMore, tabId: activeId });
+    cache?.write({ posts, cursor, hasMore, tabId: activeId, scrollY: lastScrollY });
   }
 
   async function loadFeed(reset = false) {
@@ -152,11 +160,48 @@
   // Auto-merge the queue only on the transition from scrolled-down → at
   // top (not on every count tick — see the note this replaced).
   let prevAtTop = true;
+  let scrollPersistQueued = false;
   function handleScroll() {
     const atTop = window.scrollY < 50;
     setAtTop(atTop);
     if (atTop && !prevAtTop) mergeQueued();
     prevAtTop = atTop;
+
+    // Record scroll depth into the session cache so a back-nav from a
+    // post detail can return to it. Coalesce to one write per frame —
+    // the snapshot holds references, so this is cheap.
+    lastScrollY = window.scrollY;
+    if (cache && !scrollPersistQueued) {
+      scrollPersistQueued = true;
+      requestAnimationFrame(() => {
+        scrollPersistQueued = false;
+        persist();
+      });
+    }
+  }
+
+  // Reapply a cached scroll depth after hydrating the same posts. We
+  // can't just set scrollTop once: the hydrated media lays out over the
+  // next few frames, so until the document is tall enough the browser
+  // clamps us short (and overflow-anchor is disabled, so it won't self-
+  // correct). Re-assert each frame until the page can actually reach the
+  // target — at which point we've landed exactly — or we give up.
+  function restoreScroll(targetY: number) {
+    if (!targetY || targetY <= 0) return;
+    let frames = 0;
+    const maxFrames = 30;
+    const step = () => {
+      const maxY = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight,
+      );
+      window.scrollTo(0, Math.min(targetY, maxY));
+      frames++;
+      if (maxY < targetY && frames < maxFrames) {
+        requestAnimationFrame(step);
+      }
+    };
+    requestAnimationFrame(step);
   }
 
   // Optimistic post from the composer. `accepts` gates which tab it
@@ -201,7 +246,13 @@
   onMount(() => {
     // Skip the initial fetch when hydrated from cache — refetching would
     // wipe the posts and break scroll restoration.
-    if (cached === null) loadFeed(true);
+    if (cached === null) {
+      loadFeed(true);
+    } else {
+      // Same posts are already in the DOM; put the user back where they
+      // were before they opened the post.
+      restoreScroll(cached.scrollY ?? 0);
+    }
     wireStream();
 
     window.addEventListener('scroll', handleScroll, { passive: true });

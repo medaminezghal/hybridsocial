@@ -43,6 +43,21 @@ defmodule Hybridsocial.Social.PostsTest do
       assert errors_on(changeset)[:content] != nil
     end
 
+    test "marks a post sensitive even when no spoiler_text is given" do
+      identity = create_user("nsfwuser", "nsfw@test.com")
+
+      # A post flagged NSFW without a content-warning description must
+      # still persist as sensitive (issue #52).
+      assert {:ok, post} =
+               Posts.create_post(identity.id, %{
+                 "content" => "NSFW, no warning text",
+                 "sensitive" => true
+               })
+
+      assert post.sensitive == true
+      assert post.spoiler_text in [nil, ""]
+    end
+
     test "allows media post without content" do
       identity = create_user("mediauser", "media@test.com")
 

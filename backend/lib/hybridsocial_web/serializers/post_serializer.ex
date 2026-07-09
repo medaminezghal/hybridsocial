@@ -294,6 +294,77 @@ defmodule HybridsocialWeb.Serializers.PostSerializer do
     end)
   end
 
+  @doc """
+  Layer a viewer's interaction state onto an already-serialized list of
+  posts that was produced anonymously (`current_identity_id: nil`).
+
+  This exists so a prewarmed, viewer-independent feed snapshot (see
+  `Hybridsocial.Feeds.Snapshot`) can be reused for a logged-in viewer
+  without re-running the expensive content serialization — only the cheap
+  per-viewer lookups run here.
+
+  The input is the cache-round-tripped snapshot, so every map is
+  string-keyed; the patched fields are written with string keys to match.
+
+  IMPORTANT: the set of fields patched here must stay in sync with the
+  viewer-dependent fields in `serialize_many/2`: `is_boosted`,
+  `is_bookmarked`, `is_muted`, `current_user_reaction`, the per-reaction
+  `me` flag, and poll `voted` / `own_votes`. Staff-only moderation fields
+  are intentionally NOT added — the prewarmed first page omits them.
+  """
+  def apply_viewer_state(serialized, nil), do: serialized
+  def apply_viewer_state([], _viewer_id), do: []
+
+  def apply_viewer_state(serialized, viewer_id) do
+    post_ids = Enum.map(serialized, & &1["id"])
+    {boosts, bookmarks, mutes, reactions_map} = batch_user_state(post_ids, viewer_id)
+
+    my_reactions =
+      Reaction
+      |> where([r], r.post_id in ^post_ids and r.identity_id == ^viewer_id)
+      |> select([r], {r.post_id, r.type})
+      |> Repo.all()
+      |> MapSet.new()
+
+    Enum.map(serialized, fn post ->
+      id = post["id"]
+
+      post
+      |> Map.put("is_boosted", MapSet.member?(boosts, id))
+      |> Map.put("is_bookmarked", MapSet.member?(bookmarks, id))
+      |> Map.put("is_muted", MapSet.member?(mutes, id))
+      |> Map.put("current_user_reaction", Map.get(reactions_map, id))
+      |> patch_reactions_me(id, my_reactions)
+      |> patch_poll_votes(id, viewer_id)
+    end)
+  end
+
+  # Recompute only the per-viewer `me` flag on each reaction; the counts
+  # in the snapshot are viewer-independent and stay as-is.
+  defp patch_reactions_me(post, id, my_reactions) do
+    case post["reactions"] do
+      reactions when is_list(reactions) ->
+        patched =
+          Enum.map(reactions, fn r ->
+            Map.put(r, "me", MapSet.member?(my_reactions, {id, r["name"]}))
+          end)
+
+        Map.put(post, "reactions", patched)
+
+      _ ->
+        post
+    end
+  end
+
+  # Poll `voted` / `own_votes` are per-viewer. Re-derive the whole poll
+  # object for poll posts only (rare in these feeds); reuse poll_for/2,
+  # which needs just post_type + id.
+  defp patch_poll_votes(%{"type" => "poll"} = post, id, viewer_id) do
+    Map.put(post, "poll", poll_for(%{post_type: "poll", id: id}, viewer_id))
+  end
+
+  defp patch_poll_votes(post, _id, _viewer_id), do: post
+
   @doc "Serialize a tombstone placeholder for unavailable posts."
   def serialize_tombstone(id) do
     %{
