@@ -8,7 +8,15 @@
   import FeedList from '$lib/components/feed/FeedList.svelte';
   import Avatar from '$lib/components/ui/Avatar.svelte';
   import Skeleton from '$lib/components/ui/Skeleton.svelte';
-  import TimelineFeed, { type TimelineTab } from '$lib/components/feed/TimelineFeed.svelte';
+  import TimelineFeed, {
+    type TimelineTab,
+    type TimelineCache,
+  } from '$lib/components/feed/TimelineFeed.svelte';
+  import { readExploreFeed, writeExploreFeed } from '$lib/stores/explore-feed-cache.js';
+
+  // Session cache → remember the active tab (Local/Global/Trending) and
+  // restore scroll on back-nav from a post detail (issue #53).
+  const exploreCache: TimelineCache = { read: readExploreFeed, write: writeExploreFeed };
 
   // ── Public feeds (Local / Global / Trending) ─────────────────────────
   async function loadPublic(base: string, cursor: string | null): Promise<Post[]> {
@@ -193,7 +201,7 @@
       {/if}
     </Tabs>
   {:else}
-    <TimelineFeed tabs={exploreTabs} filterContext="public" />
+    <TimelineFeed tabs={exploreTabs} cache={exploreCache} filterContext="public" />
   {/if}
 </div>
 
