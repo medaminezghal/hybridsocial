@@ -19,6 +19,7 @@
     touchY,
     reactions,
     highlightedType = $bindable<string | null>(null),
+    onpick = undefined,
   }: {
     originX: number;
     originY: number;
@@ -26,6 +27,8 @@
     touchY: number;
     reactions: RadialReaction[];
     highlightedType?: string | null;
+    /** Called when an emoji is tapped directly on an already-open dial. */
+    onpick?: (type: string) => void;
   } = $props();
 
   // Pixel distance the finger has to travel from the origin before
@@ -37,48 +40,74 @@
   // bubble graphic never gets clipped.
   const EDGE_MARGIN = 6;
 
-  // The arc radius, item size, and angular sweep scale with reaction
-  // count so a 14-emoji dial (premium tier) doesn't overlap itself.
-  // We keep the radius small enough that the arc sits visibly close
-  // to the finger rather than ballooning out across the viewport.
-  let arcRadius = $derived.by(() => {
-    const n = Math.max(reactions.length, 1);
-    if (n <= 7) return 88;
-    return Math.min(88 + (n - 7) * 7, 130);
-  });
-  let itemSize = $derived(reactions.length > 10 ? 40 : 46);
-  let emojiSize = $derived(reactions.length > 10 ? 22 : 26);
+  // ------------------------------------------------------------------
+  // TWO-RING RADIAL LAYOUT
+  //
+  // A single arc wide enough to space N emojis is, on a phone, also wide
+  // enough that its end items reach the screen edge — where clamping the
+  // rendered position away from the true angle made the corner emojis
+  // unpickable, and the low ends collided with the reply/repost row.
+  //
+  // Splitting the reactions across two concentric arcs keeps each arc's
+  // angular spread small, so ends stay well above the action row, and
+  // the whole dial fits on-screen. Hit-testing is by *nearest rendered
+  // bubble* rather than by angle, which is inherently immune to the
+  // clamp-vs-angle mismatch: whatever emoji the finger is closest to is
+  // the one that highlights, and it naturally spans both rings.
+  // ------------------------------------------------------------------
 
-  // Angular sweep — widen it slightly when there are many reactions
-  // so neighbours don't crowd each other. Anything wider than 180°
-  // dips a bit below horizontal at the ends, which is fine because
-  // the cancel threshold is computed from the arc's lowest point.
-  let sweepDeg = $derived(reactions.length <= 7 ? 180 : 200);
+  let itemSize = $derived(reactions.length > 7 ? 40 : 46);
+  let emojiSize = $derived(reactions.length > 7 ? 22 : 26);
 
-  // Tilt the arc center away from whichever vertical edge the trigger
-  // sits closest to. A like button rendered against the right edge of
-  // the viewport (common on RTL feeds and on narrow phones) would
-  // otherwise put half its emojis off-screen — see the screenshot in
-  // the 2026-05-19 bug report. ratio=0 (left edge) tilts the arc to
-  // the upper-right; ratio=1 (right edge) tilts it to the upper-left;
-  // ratio=0.5 keeps it pointing straight up.
-  let arcCenterDeg = $derived.by(() => {
-    if (typeof window === 'undefined') return 270;
-    const ratio = Math.max(0, Math.min(1, originX / window.innerWidth));
-    return 330 - 120 * ratio;
+  // Inner ring gets the first half, outer ring the rest.
+  let ringCounts = $derived.by(() => {
+    const n = reactions.length;
+    if (n <= 1) return { inner: n, outer: 0 };
+    const inner = Math.ceil(n / 2);
+    return { inner, outer: n - inner };
   });
 
-  let arcStart = $derived(arcCenterDeg - sweepDeg / 2);
-  let arcEnd = $derived(arcCenterDeg + sweepDeg / 2);
+  const INNER_RADIUS = 82;
+  const OUTER_RADIUS = 132;
+  // Narrow inner sweep keeps its low items from splaying into the outer
+  // ring or colliding once they clamp near a screen edge; the outer arc
+  // can afford a wide, comfortable spread.
+  let innerSweep = $derived(ringCounts.inner >= 6 ? 100 : ringCounts.inner >= 4 ? 120 : 96);
+  let outerSweep = $derived(ringCounts.outer >= 4 ? 150 : 120);
 
-  // How far below the origin the lowest emoji in the arc sits. Used
-  // to set the cancel-on-drag-down threshold so it stays just under
-  // the arc rather than slicing through it on wider sweeps.
-  let arcLowestY = $derived.by(() => {
-    const sStart = Math.sin((arcStart * Math.PI) / 180);
-    const sEnd = Math.sin((arcEnd * Math.PI) / 180);
-    return Math.max(0, Math.max(sStart, sEnd) * arcRadius);
+  // The dial is a floating overlay and need not be centred on the button.
+  // Clamp the arc origin into a safe horizontal band so a full-width arc
+  // clears both viewport edges; the vertical origin stays on the button
+  // so the dial still visually erupts from it.
+  let safeOriginX = $derived.by(() => {
+    if (typeof window === 'undefined') return originX;
+    const vw = window.innerWidth;
+    const pad = OUTER_RADIUS + EDGE_MARGIN + 10;
+    return Math.max(pad, Math.min(vw - pad, originX));
   });
+
+  function buildArc(
+    items: RadialReaction[],
+    startIdx: number,
+    radius: number,
+    sweep: number,
+    vw: number,
+    vh: number,
+    margin: number,
+  ) {
+    const count = items.length;
+    const arcStart = 270 - sweep / 2;
+    const step = count > 1 ? sweep / (count - 1) : 0;
+    return items.map((r, k) => {
+      const deg = count === 1 ? 270 : arcStart + k * step;
+      const rad = (deg * Math.PI) / 180;
+      const rawX = safeOriginX + radius * Math.cos(rad);
+      const rawY = originY + radius * Math.sin(rad);
+      const x = Math.min(Math.max(rawX, margin), vw - margin);
+      const y = Math.min(Math.max(rawY, margin), vh - margin);
+      return { ...r, x, y, ring: radius === INNER_RADIUS ? 0 : 1, globalIndex: startIdx + k };
+    });
+  }
 
   let positions = $derived.by(() => {
     const n = reactions.length;
@@ -86,55 +115,40 @@
     const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
     const margin = itemSize / 2 + EDGE_MARGIN;
-    const step = n === 1 ? 0 : (arcEnd - arcStart) / (n - 1);
-    return reactions.map((r, i) => {
-      // Normalize to [0, 360) so the hit-test comparison against
-      // touchDeg (also normalized) doesn't need wrap-around special
-      // cases when arcEnd > 360 or arcStart < 0.
-      const rawDeg = n === 1 ? arcCenterDeg : arcStart + i * step;
-      const deg = ((rawDeg % 360) + 360) % 360;
-      const rad = (rawDeg * Math.PI) / 180;
-      const rawX = originX + arcRadius * Math.cos(rad);
-      const rawY = originY + arcRadius * Math.sin(rad);
-      // Clamp display position to viewport. Hit-detection still uses
-      // the unclamped angle from the origin, so visually clipping the
-      // bubble to the screen edge doesn't break which emoji a touch
-      // resolves to.
-      const x = Math.min(Math.max(rawX, margin), vw - margin);
-      const y = Math.min(Math.max(rawY, margin), vh - margin);
-      return { ...r, x, y, deg };
-    });
+    const { inner } = ringCounts;
+    const innerItems = reactions.slice(0, inner);
+    const outerItems = reactions.slice(inner);
+    const inArc = buildArc(innerItems, 0, INNER_RADIUS, innerSweep, vw, vh, margin);
+    const outArc =
+      outerItems.length > 0
+        ? buildArc(outerItems, inner, OUTER_RADIUS, outerSweep, vw, vh, margin)
+        : [];
+    return [...inArc, ...outArc];
   });
 
-  // Index of the emoji the finger is currently pointing at, or -1
-  // when the finger is too close to the origin (dead zone) or below
-  // the arc — both signal "cancel".
+  // Nearest-bubble hit-test. The finger highlights whichever rendered
+  // bubble it is closest to, once it has left the dead zone around the
+  // button and is actually near a bubble. Robust to the viewport
+  // clamping above, and spans both rings without special-casing.
   let activeIdx = $derived.by(() => {
     if (positions.length === 0) return -1;
-    const dx = touchX - originX;
-    const dy = touchY - originY;
-    const dist = Math.hypot(dx, dy);
-    if (dist < DEAD_ZONE_PX) return -1;
+    // Dead zone measured from the *button* (touch origin): a resting
+    // finger always reads as "cancel", wherever the arc was shifted to.
+    if (Math.hypot(touchX - originX, touchY - originY) < DEAD_ZONE_PX) return -1;
 
-    // Cancel if the finger has wandered well below the dial. Use the
-    // arc's actual lowest y so a wider sweep doesn't trip this guard.
-    if (dy > arcLowestY + 28) return -1;
-
-    // Pick the emoji whose angular position is closest to the finger.
-    // Atan2 returns [-180°, 180°]; normalize to [0, 360°) so the
-    // comparison with `positions[i].deg` is direct.
-    const touchDeg = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360;
     let best = -1;
-    let bestDiff = Infinity;
+    let bestDist = Infinity;
     for (let i = 0; i < positions.length; i++) {
-      let diff = Math.abs(positions[i].deg - touchDeg);
-      if (diff > 180) diff = 360 - diff;
-      if (diff < bestDiff) {
-        bestDiff = diff;
+      const d = Math.hypot(touchX - positions[i].x, touchY - positions[i].y);
+      if (d < bestDist) {
+        bestDist = d;
         best = i;
       }
     }
-    return best;
+    // Require the finger within ~1.5 bubble-widths of the nearest bubble,
+    // so drifting into empty space (or below the dial) cancels rather
+    // than sticking to the closest edge item.
+    return bestDist <= itemSize * 1.5 ? best : -1;
   });
 
   $effect(() => {
@@ -159,10 +173,9 @@
   // for a long reaction shortcode never bleeds off-screen.
   let labelPos = $derived.by(() => {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
-    const rad = (arcCenterDeg * Math.PI) / 180;
-    const dist = arcRadius + 36;
-    const rawX = originX + dist * Math.cos(rad);
-    const rawY = originY + dist * Math.sin(rad);
+    const dist = OUTER_RADIUS + 34;
+    const rawX = safeOriginX;
+    const rawY = originY - dist;
     return {
       x: Math.min(Math.max(rawX, 70), vw - 70),
       y: Math.max(rawY, 16),
@@ -175,24 +188,33 @@
        dial easier to focus on without obscuring the post entirely. -->
   <div class="radial-scrim"></div>
 
-  <!-- Faint guide ring to anchor the eye on the arc center. -->
+  <!-- Faint guide rings (inner + outer) to anchor the eye. -->
   <div
     class="radial-ring"
-    style="left: {originX}px; top: {originY}px; width: {arcRadius * 2}px; height: {arcRadius * 2}px;"
+    style="left: {safeOriginX}px; top: {originY}px; width: {INNER_RADIUS * 2}px; height: {INNER_RADIUS * 2}px;"
   ></div>
+  {#if ringCounts.outer > 0}
+    <div
+      class="radial-ring"
+      style="left: {safeOriginX}px; top: {originY}px; width: {OUTER_RADIUS * 2}px; height: {OUTER_RADIUS * 2}px;"
+    ></div>
+  {/if}
 
   {#each positions as p, i (p.type)}
-    <div
+    <button
+      type="button"
       class="radial-item"
       class:radial-item-active={i === activeIdx}
       style="left: {p.x}px; top: {p.y}px; width: {itemSize}px; height: {itemSize}px; animation-delay: {30 * i}ms;"
+      aria-label={p.label}
+      onpointerup={(e) => { e.stopPropagation(); onpick?.(p.type); }}
     >
       {#if p.image}
         <img class="radial-image" src={p.image} alt="" style="width: {emojiSize}px; height: {emojiSize}px;" />
       {:else}
         <span class="radial-emoji" style="font-size: {emojiSize}px;">{p.emoji}</span>
       {/if}
-    </div>
+    </button>
   {/each}
 
   <!-- Label tag at the top of the dial showing what the user is
@@ -251,6 +273,14 @@
 
   .radial-item {
     position: absolute;
+    /* Re-enable taps on the items themselves; the overlay and scrim stay
+       pointer-events:none so a drag still falls through to the button's
+       touch handlers. This is what lets an already-open dial be picked
+       by a tap without breaking drag-to-pick. */
+    pointer-events: auto;
+    border: none;
+    padding: 0;
+    cursor: pointer;
     transform: translate(-50%, -50%) scale(0);
     /* width / height are set inline; they scale with reaction count. */
     border-radius: 50%;
