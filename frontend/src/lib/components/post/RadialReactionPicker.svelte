@@ -1,9 +1,12 @@
 <script lang="ts">
-  // Touch-only reaction dial. Lives as an overlay over the whole
-  // viewport; PostActions owns the touch handlers and tells us where
-  // the user's finger currently is. We figure out which emoji that
-  // angle picks and bubble it back through `bind:highlightedType` so
-  // the parent can commit it on touchend.
+  // Touch reaction tray. Replaces the earlier radial dial: a rounded
+  // panel of emoji that pops above the like button with a pointer tail
+  // aimed at it. A grid fits any reaction count (7 default, up to the
+  // premium 14) at any screen width without the arc-vs-width overlap the
+  // dial suffered. PostActions owns the touch handlers and passes the
+  // button centre (originX/originY) and the live finger position; we map
+  // that to a highlighted cell and bubble it back through
+  // `bind:highlightedType`, and call `onpick` when a cell is tapped.
 
   interface RadialReaction {
     type: string;
@@ -27,137 +30,104 @@
     touchY: number;
     reactions: RadialReaction[];
     highlightedType?: string | null;
-    /** Called when an emoji is tapped directly on an already-open dial. */
+    /** Called when an emoji is tapped/released on a cell. */
     onpick?: (type: string) => void;
   } = $props();
 
-  // Pixel distance the finger has to travel from the origin before
-  // any emoji is considered "aimed at". Under this radius, releasing
-  // cancels the reaction — same UX as the iOS message tapback dial.
-  const DEAD_ZONE_PX = 36;
-  // Safety gutter from each viewport edge — bubbles never sit closer
-  // to the screen edge than `halfItem + EDGE_MARGIN` so the rounded
-  // bubble graphic never gets clipped.
-  const EDGE_MARGIN = 6;
+  const EDGE_MARGIN = 8;
+  const GAP = 6;
+  const PAD = 10;
+  const BORDER = 1;
 
-  // ------------------------------------------------------------------
-  // TWO-RING RADIAL LAYOUT
-  //
-  // A single arc wide enough to space N emojis is, on a phone, also wide
-  // enough that its end items reach the screen edge — where clamping the
-  // rendered position away from the true angle made the corner emojis
-  // unpickable, and the low ends collided with the reply/repost row.
-  //
-  // Splitting the reactions across two concentric arcs keeps each arc's
-  // angular spread small, so ends stay well above the action row, and
-  // the whole dial fits on-screen. Hit-testing is by *nearest rendered
-  // bubble* rather than by angle, which is inherently immune to the
-  // clamp-vs-angle mismatch: whatever emoji the finger is closest to is
-  // the one that highlights, and it naturally spans both rings.
-  // ------------------------------------------------------------------
+  // Cell size shrinks a touch for the dense premium set so two rows of
+  // seven still fit comfortably on a 320px phone.
+  // Up to 7 per row; a second row opens once we pass 7.
+  let cols = $derived(Math.min(reactions.length, 7));
+  let rows = $derived(Math.max(1, Math.ceil(reactions.length / 7)));
 
-  let itemSize = $derived(reactions.length > 7 ? 40 : 46);
-  let emojiSize = $derived(reactions.length > 7 ? 22 : 26);
-
-  // Inner ring gets the first half, outer ring the rest.
-  let ringCounts = $derived.by(() => {
-    const n = reactions.length;
-    if (n <= 1) return { inner: n, outer: 0 };
-    const inner = Math.ceil(n / 2);
-    return { inner, outer: n - inner };
+  // Cell size: a comfortable default, but never so large that the row
+  // overflows the viewport. On a 320px phone the 7-wide premium row must
+  // still fit inside the edge margins, so we cap the cell to the width
+  // the screen can actually give each column.
+  let cellSize = $derived.by(() => {
+    const preferred = reactions.length <= 7 ? 46 : 44;
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 400;
+    const available = vw - EDGE_MARGIN * 2 - PAD * 2 - BORDER * 2 - GAP * (cols - 1);
+    const maxCell = Math.floor(available / cols);
+    return Math.max(30, Math.min(preferred, maxCell));
   });
 
-  const INNER_RADIUS = 82;
-  const OUTER_RADIUS = 132;
-  // Narrow inner sweep keeps its low items from splaying into the outer
-  // ring or colliding once they clamp near a screen edge; the outer arc
-  // can afford a wide, comfortable spread.
-  let innerSweep = $derived(ringCounts.inner >= 6 ? 100 : ringCounts.inner >= 4 ? 120 : 96);
-  let outerSweep = $derived(ringCounts.outer >= 4 ? 150 : 120);
+  // Exact rendered box: fixed-size cells + gaps + padding + the 1px
+  // border on each side. Used for centering the tray on the button and
+  // for placing the tail; the tray element itself is NOT given this as
+  // an explicit width — it sizes to its grid content so left/right
+  // padding stay symmetric (an explicit width that didn't match the
+  // content to the pixel pooled the slack on one side).
+  let trayWidth = $derived(cols * cellSize + (cols - 1) * GAP + PAD * 2 + BORDER * 2);
+  let trayHeight = $derived(rows * cellSize + (rows - 1) * GAP + PAD * 2 + BORDER * 2);
 
-  // The dial is a floating overlay and need not be centred on the button.
-  // Clamp the arc origin into a safe horizontal band so a full-width arc
-  // clears both viewport edges; the vertical origin stays on the button
-  // so the dial still visually erupts from it.
-  let safeOriginX = $derived.by(() => {
-    if (typeof window === 'undefined') return originX;
-    const vw = window.innerWidth;
-    const pad = OUTER_RADIUS + EDGE_MARGIN + 10;
-    return Math.max(pad, Math.min(vw - pad, originX));
-  });
-
-  function buildArc(
-    items: RadialReaction[],
-    startIdx: number,
-    radius: number,
-    sweep: number,
-    vw: number,
-    vh: number,
-    margin: number,
-  ) {
-    const count = items.length;
-    const arcStart = 270 - sweep / 2;
-    const step = count > 1 ? sweep / (count - 1) : 0;
-    return items.map((r, k) => {
-      const deg = count === 1 ? 270 : arcStart + k * step;
-      const rad = (deg * Math.PI) / 180;
-      const rawX = safeOriginX + radius * Math.cos(rad);
-      const rawY = originY + radius * Math.sin(rad);
-      const x = Math.min(Math.max(rawX, margin), vw - margin);
-      const y = Math.min(Math.max(rawY, margin), vh - margin);
-      return { ...r, x, y, ring: radius === INNER_RADIUS ? 0 : 1, globalIndex: startIdx + k };
-    });
-  }
-
-  let positions = $derived.by(() => {
-    const n = reactions.length;
-    if (n === 0) return [];
+  // Position the tray above the button, its tail lined up under the
+  // button centre. Clamp the tray box into the viewport, but keep the
+  // tail glued to the button so the pointer always aims at it even when
+  // the tray itself had to slide inward from a screen edge.
+  const TAIL = 9; // gap between tail tip and button
+  let layout = $derived.by(() => {
     const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
-    const vh = typeof window !== 'undefined' ? window.innerHeight : 9999;
-    const margin = itemSize / 2 + EDGE_MARGIN;
-    const { inner } = ringCounts;
-    const innerItems = reactions.slice(0, inner);
-    const outerItems = reactions.slice(inner);
-    const inArc = buildArc(innerItems, 0, INNER_RADIUS, innerSweep, vw, vh, margin);
-    const outArc =
-      outerItems.length > 0
-        ? buildArc(outerItems, inner, OUTER_RADIUS, outerSweep, vw, vh, margin)
-        : [];
-    return [...inArc, ...outArc];
+    // Preferred: tray horizontally centred on the button.
+    let left = originX - trayWidth / 2;
+    left = Math.min(Math.max(left, EDGE_MARGIN), vw - EDGE_MARGIN - trayWidth);
+    // Tray sits above the button with room for the tail.
+    const top = originY - trayHeight - 20 - TAIL;
+    // Tail x is the button centre, expressed relative to the tray's left
+    // edge, and kept a little inside the rounded corners.
+    const tailX = Math.min(
+      Math.max(originX - left, 16),
+      trayWidth - 16,
+    );
+    return { left, top, tailX };
   });
 
-  // Nearest-bubble hit-test. The finger highlights whichever rendered
-  // bubble it is closest to, once it has left the dead zone around the
-  // button and is actually near a bubble. Robust to the viewport
-  // clamping above, and spans both rings without special-casing.
-  let activeIdx = $derived.by(() => {
-    if (positions.length === 0) return -1;
-    // Dead zone measured from the *button* (touch origin): a resting
-    // finger always reads as "cancel", wherever the arc was shifted to.
-    if (Math.hypot(touchX - originX, touchY - originY) < DEAD_ZONE_PX) return -1;
+  // Which cell the finger is over — lets the existing press-drag-release
+  // flow highlight and commit without lifting. Pure geometry against the
+  // rendered cell rects; robust and grid-simple.
+  let cellCenters = $derived.by(() => {
+    const { left, top } = layout;
+    const originYTop = top + PAD;
+    const originXLeft = left + PAD;
+    return reactions.map((r, i) => {
+      const col = i % 7;
+      const row = Math.floor(i / 7);
+      return {
+        ...r,
+        cx: originXLeft + col * (cellSize + GAP) + cellSize / 2,
+        cy: originYTop + row * (cellSize + GAP) + cellSize / 2,
+      };
+    });
+  });
 
+  let activeIdx = $derived.by(() => {
+    if (cellCenters.length === 0) return -1;
+    // Finger still on/near the button (hasn't moved up into the tray) —
+    // no highlight yet, so a plain long-press just opens the tray.
+    if (Math.hypot(touchX - originX, touchY - originY) < 24) return -1;
     let best = -1;
     let bestDist = Infinity;
-    for (let i = 0; i < positions.length; i++) {
-      const d = Math.hypot(touchX - positions[i].x, touchY - positions[i].y);
+    for (let i = 0; i < cellCenters.length; i++) {
+      const d = Math.hypot(touchX - cellCenters[i].cx, touchY - cellCenters[i].cy);
       if (d < bestDist) {
         bestDist = d;
         best = i;
       }
     }
-    // Require the finger within ~1.5 bubble-widths of the nearest bubble,
-    // so drifting into empty space (or below the dial) cancels rather
-    // than sticking to the closest edge item.
-    return bestDist <= itemSize * 1.5 ? best : -1;
+    // Only highlight if the finger is actually within the tray band.
+    return bestDist <= cellSize * 1.1 ? best : -1;
   });
 
   $effect(() => {
-    highlightedType = activeIdx >= 0 ? positions[activeIdx].type : null;
+    highlightedType = activeIdx >= 0 ? cellCenters[activeIdx].type : null;
   });
 
-  // Mild haptic each time the highlighted emoji changes — gives the
-  // user tactile confirmation as their finger sweeps across the arc.
-  // Gracefully no-ops on iOS Safari, which doesn't expose vibrate().
+  // Mild haptic as the highlighted cell changes. No-ops on iOS Safari.
   let lastHaptic = -1;
   $effect(() => {
     if (activeIdx !== lastHaptic) {
@@ -167,180 +137,178 @@
       }
     }
   });
-
-  // Label sits just past the arc in the direction the arc points
-  // (i.e. opposite the trigger). Clamped to the viewport so a label
-  // for a long reaction shortcode never bleeds off-screen.
-  let labelPos = $derived.by(() => {
-    const vw = typeof window !== 'undefined' ? window.innerWidth : 9999;
-    const dist = OUTER_RADIUS + 34;
-    const rawX = safeOriginX;
-    const rawY = originY - dist;
-    return {
-      x: Math.min(Math.max(rawX, 70), vw - 70),
-      y: Math.max(rawY, 16),
-    };
-  });
 </script>
 
-<div class="radial-overlay" aria-hidden="true">
-  <!-- Soft scrim so the underlying post fades a touch — makes the
-       dial easier to focus on without obscuring the post entirely. -->
-  <div class="radial-scrim"></div>
-
-  <!-- Faint guide rings (inner + outer) to anchor the eye. -->
+<div class="tray-overlay" aria-hidden="true">
   <div
-    class="radial-ring"
-    style="left: {safeOriginX}px; top: {originY}px; width: {INNER_RADIUS * 2}px; height: {INNER_RADIUS * 2}px;"
-  ></div>
-  {#if ringCounts.outer > 0}
-    <div
-      class="radial-ring"
-      style="left: {safeOriginX}px; top: {originY}px; width: {OUTER_RADIUS * 2}px; height: {OUTER_RADIUS * 2}px;"
-    ></div>
-  {/if}
+    class="react-tray"
+    style="
+      left: {layout.left}px;
+      top: {layout.top}px;
+      --cols: {cols};
+      --cell: {cellSize}px;
+      --gap: {GAP}px;
+      --pad: {PAD}px;
+    "
+  >
+    {#each reactions as r, i (r.type)}
+      <button
+        type="button"
+        class="tray-cell"
+        class:tray-cell-active={i === activeIdx}
+        style="animation-delay: {18 * i}ms;"
+        aria-label={r.label}
+        onpointerup={(e) => { e.stopPropagation(); onpick?.(r.type); }}
+      >
+        {#if r.image}
+          <img class="cell-image" src={r.image} alt="" />
+        {:else}
+          <span class="cell-emoji">{r.emoji}</span>
+        {/if}
+      </button>
+    {/each}
 
-  {#each positions as p, i (p.type)}
-    <button
-      type="button"
-      class="radial-item"
-      class:radial-item-active={i === activeIdx}
-      style="left: {p.x}px; top: {p.y}px; width: {itemSize}px; height: {itemSize}px; animation-delay: {30 * i}ms;"
-      aria-label={p.label}
-      onpointerup={(e) => { e.stopPropagation(); onpick?.(p.type); }}
-    >
-      {#if p.image}
-        <img class="radial-image" src={p.image} alt="" style="width: {emojiSize}px; height: {emojiSize}px;" />
-      {:else}
-        <span class="radial-emoji" style="font-size: {emojiSize}px;">{p.emoji}</span>
-      {/if}
-    </button>
-  {/each}
-
-  <!-- Label tag at the top of the dial showing what the user is
-       about to pick. Hidden when in the dead zone so the user clearly
-       sees they're cancelling. Position keeps it out of the finger's
-       path and is clamped inside the viewport. -->
-  {#if activeIdx >= 0}
-    {@const label = positions[activeIdx].label}
-    <div
-      class="radial-label"
-      style="left: {labelPos.x}px; top: {labelPos.y}px;"
-    >
-      {label}
-    </div>
-  {/if}
+    <!-- Pointer tail: a rotated square hanging off the tray's bottom
+         edge, its x locked to the button centre so it always aims at the
+         button the tray erupted from. -->
+    <span class="tray-tail" style="left: {layout.tailX}px;"></span>
+  </div>
 </div>
 
 <style>
-  .radial-overlay {
+  .tray-overlay {
     position: fixed;
     inset: 0;
     z-index: 10000;
-    /* Don't intercept touches — the like button's touchmove handler
-       is the source of truth for where the finger is, and we don't
-       want this overlay to swallow that event. */
+    /* The button's touch handlers are the source of truth for the
+       finger position; don't let the overlay swallow the gesture. The
+       cells re-enable pointer events on themselves for tap-to-pick. */
     pointer-events: none;
-    /* Belt and braces only. Because of `pointer-events: none` above,
-       this overlay is transparent to selection hit-testing, so these
-       rules protect the dial's own glyphs, not the post text beneath
-       it. The post text is protected by cancelling touchstart on the
-       like button, which suppresses the OS long-press gesture. */
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
     touch-action: none;
   }
 
-  .radial-scrim {
+  .react-tray {
     position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.18);
-    backdrop-filter: blur(1px);
-    -webkit-backdrop-filter: blur(1px);
-    animation: scrim-in 120ms ease forwards;
+    /* Only `left`/`top` position the tray; without these, an inherited
+       `right` from the full-screen overlay stretched the box and pooled
+       the slack on one side (visible as extra right padding). */
+    right: auto;
+    bottom: auto;
+    box-sizing: border-box;
+    width: max-content;
+    display: grid;
+    grid-template-columns: repeat(var(--cols), var(--cell));
+    gap: var(--gap);
+    padding: var(--pad);
+    /* Tinted, translucent surface that echoes the feed wash without
+       matching it — a frosted panel that reads clearly over any post. */
+    background: color-mix(in oklab, var(--color-bg-wash, #f4f1fd) 82%, #ffffff);
+    background: color-mix(
+      in oklab,
+      var(--color-bg-wash, #f4f1fd) 70%,
+      color-mix(in oklab, var(--color-primary, #6c3edd) 8%, #ffffff)
+    );
+    border: 1px solid color-mix(in oklab, var(--color-primary, #6c3edd) 14%, transparent);
+    border-radius: 24px;
+    box-shadow:
+      0 12px 34px color-mix(in oklab, var(--color-primary, #6c3edd) 22%, transparent),
+      0 3px 10px rgba(0, 0, 0, 0.10);
+    backdrop-filter: blur(14px) saturate(1.25);
+    -webkit-backdrop-filter: blur(14px) saturate(1.25);
+    transform-origin: bottom center;
+    animation: tray-pop 200ms cubic-bezier(0.2, 0.9, 0.3, 1.25);
   }
 
-  .radial-ring {
-    position: absolute;
-    transform: translate(-50%, -50%);
-    /* width / height are set inline; they scale with reaction count. */
-    border-radius: 50%;
-    border: 1px dashed rgba(255, 255, 255, 0.18);
-    pointer-events: none;
-    animation: ring-in 220ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  @keyframes tray-pop {
+    from {
+      opacity: 0;
+      transform: scale(0.82) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
 
-  .radial-item {
-    position: absolute;
-    /* Re-enable taps on the items themselves; the overlay and scrim stay
-       pointer-events:none so a drag still falls through to the button's
-       touch handlers. This is what lets an already-open dial be picked
-       by a tap without breaking drag-to-pick. */
+  .tray-cell {
     pointer-events: auto;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    transform: translate(-50%, -50%) scale(0);
-    /* width / height are set inline; they scale with reaction count. */
-    border-radius: 50%;
-    background: var(--color-surface-container-lowest, #fff);
+    width: var(--cell);
+    height: var(--cell);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
-    /* `opacity` doesn't transition cleanly with the pop animation;
-       set start state via animation and let `transition` handle the
-       active-scale-up afterward. */
-    animation: pop-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
-    transition: transform 120ms cubic-bezier(0.34, 1.56, 0.64, 1),
-      background 120ms ease,
-      box-shadow 120ms ease;
+    border: none;
+    padding: 0;
+    background: none;
+    border-radius: 14px;
+    cursor: pointer;
+    transform: scale(0);
+    animation: cell-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1.4) forwards;
+    transition:
+      transform 120ms ease,
+      background 120ms ease;
   }
 
-  .radial-item-active {
-    transform: translate(-50%, -50%) scale(1.5);
-    background: var(--color-primary-soft, #e0f2fe);
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
-    z-index: 1;
+  @keyframes cell-in {
+    to {
+      transform: scale(1);
+    }
   }
 
-  .radial-emoji {
-    /* font-size is set inline; it scales with reaction count. */
+  .tray-cell:hover,
+  .tray-cell-active {
+    background: color-mix(in oklab, var(--color-primary, #6c3edd) 16%, transparent);
+    transform: scale(1.18);
+  }
+
+  .cell-emoji {
+    font-size: calc(var(--cell) * 0.62);
     line-height: 1;
   }
 
-  .radial-image {
-    /* width / height are set inline; they scale with reaction count. */
+  .cell-image {
+    width: calc(var(--cell) * 0.62);
+    height: calc(var(--cell) * 0.62);
     object-fit: contain;
   }
 
-  .radial-label {
+  .tray-tail {
     position: absolute;
-    transform: translate(-50%, -50%);
-    padding: 4px 10px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.7);
-    border-radius: 9999px;
-    pointer-events: none;
-    white-space: nowrap;
+    /* Sit the beak just below the tray's bottom edge. The rotated square
+       is 18px, so half its diagonal (~13px) shows below; pushing it down
+       by ~7px keeps only the lower triangle visible and stops its upper
+       corner poking up behind the bottom-row cells (the seam that showed
+       over the first emoji). It sits BEHIND the tray (z-index:-1) so the
+       tray body cleanly covers the beak's top edge. */
+    top: 100%;
+    width: 18px;
+    height: 18px;
+    margin-left: -9px;
+    transform: translateY(-11px) rotate(45deg);
+    z-index: -1;
+    /* Same tinted surface as the tray so the beak is seamless. */
+    background: color-mix(
+      in oklab,
+      var(--color-bg-wash, #f4f1fd) 70%,
+      color-mix(in oklab, var(--color-primary, #6c3edd) 8%, #ffffff)
+    );
+    border-right: 1px solid color-mix(in oklab, var(--color-primary, #6c3edd) 14%, transparent);
+    border-bottom: 1px solid color-mix(in oklab, var(--color-primary, #6c3edd) 14%, transparent);
+    border-bottom-right-radius: 4px;
+    box-shadow: 2px 4px 7px color-mix(in oklab, var(--color-primary, #6c3edd) 12%, transparent);
   }
 
-  @keyframes scrim-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-
-  @keyframes ring-in {
-    from { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
-    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  }
-
-  @keyframes pop-in {
-    from { opacity: 0; transform: translate(-50%, -50%) scale(0); }
-    60% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
-    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  @media (prefers-reduced-motion: reduce) {
+    .react-tray,
+    .tray-cell {
+      animation: none;
+      transform: none;
+    }
+    .tray-cell {
+      transform: scale(1);
+    }
   }
 </style>
