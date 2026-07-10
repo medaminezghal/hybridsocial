@@ -203,8 +203,11 @@ defmodule Hybridsocial.Media do
   # returns {nil, nil} if vipsheader is unavailable or the file isn't an
   # image.
   defp image_dimensions(path, "image/" <> _) do
-    with {w_out, 0} <- System.cmd("vipsheader", ["-f", "width", path], stderr_to_stdout: true),
-         {h_out, 0} <- System.cmd("vipsheader", ["-f", "height", path], stderr_to_stdout: true),
+    # Guard on the executable so environments without libvips (e.g. CI) get
+    # {nil, nil} instead of a raised :enoent from System.cmd.
+    with vips when is_binary(vips) <- System.find_executable("vipsheader"),
+         {w_out, 0} <- System.cmd(vips, ["-f", "width", path], stderr_to_stdout: true),
+         {h_out, 0} <- System.cmd(vips, ["-f", "height", path], stderr_to_stdout: true),
          {w, _} <- Integer.parse(String.trim(w_out)),
          {h, _} <- Integer.parse(String.trim(h_out)) do
       {w, h}
