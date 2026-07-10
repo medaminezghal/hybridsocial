@@ -97,6 +97,10 @@
   // Set when a second finger joins: the gesture is no longer a tap or a
   // dial drag, and must not commit a reaction when the fingers lift.
   let touchGestureVoid = false;
+  // True once a long-press has opened the dial and the finger lifted
+  // without picking: the dial stays open, waiting for a tap. Lets the
+  // window-click dismiss handler ignore the very release that armed it.
+  let radialArmedForTap = false;
   // Wall-clock timestamp (ms epoch) up to which any pointerenter /
   // mouseenter on the wrapper is treated as a touch-synthesized event
   // and ignored. Without this, Android Chrome fires a phantom
@@ -401,6 +405,7 @@
       return;
     }
     touchGestureVoid = false;
+    radialArmedForTap = false;
     // Suppress the native long-press menu (Copy / Share / Select all
     // on Android; the iOS callout). Without this, the OS hijacks the
     // gesture mid-hold and pops a text-selection toolbar over the
@@ -501,10 +506,17 @@
 
     if (wasRadial) {
       const picked = radialHighlighted;
-      radialOpen = false;
-      radialHighlighted = null;
       if (picked) {
+        // Drag-and-release: commit immediately and close.
+        radialOpen = false;
+        radialHighlighted = null;
         handleReaction(picked);
+      } else {
+        // Released without aiming at an emoji (a plain long-press, or the
+        // finger drifted back to the dead zone). Keep the dial open so
+        // the user can now *tap* an emoji — the second half of the
+        // "drag OR tap" model. Dismissed by the next outside tap.
+        radialArmedForTap = true;
       }
     } else {
       // Short tap. Reproduce native click semantics — the browser fires
@@ -527,6 +539,13 @@
       }
     }
 
+  }
+
+  function handleRadialPick(type: string) {
+    radialOpen = false;
+    radialHighlighted = null;
+    radialArmedForTap = false;
+    handleReaction(type);
   }
 
   function reactionTouchCancel() {
@@ -1008,6 +1027,15 @@
     showReactionPicker = false;
     showMoreMenu = false;
     showReactionDetail = false;
+    // An open, tap-armed dial closes on the next tap that isn't on an
+    // emoji (taps on emojis call handleRadialPick + stopPropagation, so
+    // they never reach here). The touchend that armed the dial has
+    // already passed, so this only fires on a subsequent tap.
+    if (radialArmedForTap) {
+      radialArmedForTap = false;
+      radialOpen = false;
+      radialHighlighted = null;
+    }
   }
 </script>
 
@@ -1100,6 +1128,7 @@
         touchY={radialTouchY}
         reactions={radialReactions}
         bind:highlightedType={radialHighlighted}
+        onpick={handleRadialPick}
       />
     {/if}
 
