@@ -61,6 +61,17 @@ defmodule HybridsocialWeb.CrawlerController do
     end
   end
 
+  # JSON variant of `post/2` for the frontend SSR. Same privacy rules:
+  # only strictly-public local posts return content, everything else
+  # returns the neutral private placeholder.
+  def post_meta(conn, %{"id" => id}) do
+    case fetch_post(id) do
+      {:ok, :public, post} -> json(conn, post_og_public(post))
+      {:ok, :private, post} -> json(conn, post_og_private(post))
+      {:error, :not_found} -> conn |> put_status(:not_found) |> json(%{error: "not_found"})
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # GET /@:handle
   # ---------------------------------------------------------------------------
@@ -79,6 +90,22 @@ defmodule HybridsocialWeb.CrawlerController do
       end
     else
       send_spa_handoff(conn)
+    end
+  end
+
+  # JSON variant of `profile/2` for the frontend SSR. Only unfurl-allowed,
+  # live profiles expose bio/avatar; others get a neutral placeholder so a
+  # private/locked profile never leaks content.
+  def profile_meta(conn, %{"handle" => handle}) do
+    case Accounts.get_identity_by_handle(handle) do
+      %{allow_unfurl: true, deleted_at: nil, is_suspended: false} = identity ->
+        json(conn, profile_og_full(identity))
+
+      %{deleted_at: nil, is_suspended: false} = identity ->
+        json(conn, profile_og_placeholder(identity))
+
+      _ ->
+        conn |> put_status(:not_found) |> json(%{error: "not_found"})
     end
   end
 
