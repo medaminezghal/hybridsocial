@@ -2,16 +2,19 @@ defmodule Hybridsocial.Trending do
   @moduledoc """
   Trending context. Computes and retrieves trending posts, hashtags, and links.
   Uses precomputed data stored in the trending_data table.
-  Supports OpenSearch aggregations when enabled, with PostgreSQL fallback.
+
+  Computation runs in PostgreSQL: it scores hashtags by
+  `post_count * ln(unique_accounts + 1)` (volume weighted by distinct
+  authors) and also stores the "people talking" count and a per-day
+  sparkline. An earlier OpenSearch aggregation path was removed because
+  it was never reachable (dead guard) and, being volume-only with no
+  author count or sparkline, would have regressed the UI if enabled.
   """
   import Ecto.Query
 
   alias Hybridsocial.Repo
   alias Hybridsocial.Search.TrendingData
   alias Hybridsocial.Social.{Post, Hashtag}
-  alias Hybridsocial.Search.OpenSearch
-
-  require Logger
 
   @default_limit 20
   @max_limit 40
@@ -46,28 +49,14 @@ defmodule Hybridsocial.Trending do
   account diversity, and time decay. Stores results in trending_data.
   """
   def compute_trending_posts do
-    if search_backend() == "opensearch" do
-      case opensearch_compute_trending_posts() do
-        :ok -> :ok
-        {:error, _reason} -> pg_compute_trending_posts()
-      end
-    else
-      pg_compute_trending_posts()
-    end
+    pg_compute_trending_posts()
   end
 
   @doc """
   Computes trending hashtags based on usage in the last 24 hours.
   """
   def compute_trending_hashtags do
-    if search_backend() == "opensearch" do
-      case opensearch_compute_trending_hashtags() do
-        :ok -> :ok
-        {:error, _reason} -> pg_compute_trending_hashtags()
-      end
-    else
-      pg_compute_trending_hashtags()
-    end
+    pg_compute_trending_hashtags()
   end
 
   @doc """
@@ -144,141 +133,7 @@ defmodule Hybridsocial.Trending do
     :ok
   end
 
-  # --- OpenSearch Implementations ---
-
-  defp opensearch_compute_trending_posts do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-    cutoff = DateTime.add(now, -24, :hour)
-
-    query = %{
-      query: %{
-        bool: %{
-          filter: [
-            %{term: %{visibility: "public"}},
-            %{range: %{published_at: %{gte: DateTime.to_iso8601(cutoff)}}}
-          ]
-        }
-      },
-      aggs: %{
-        top_posts: %{
-          terms: %{field: "_id", size: 200},
-          aggs: %{
-            total_engagement: %{
-              sum: %{
-                script: %{
-                  source:
-                    "doc['reaction_count'].value + doc['boost_count'].value + doc['reply_count'].value"
-                }
-              }
-            },
-            published: %{
-              max: %{field: "published_at"}
-            }
-          }
-        }
-      },
-      size: 0
-    }
-
-    case OpenSearch.search("hybridsocial_posts", query, size: 0) do
-      {:ok, %{aggregations: %{"top_posts" => %{"buckets" => buckets}}}} ->
-        # Clear old trending posts
-        TrendingData
-        |> where([t], t.type == "post")
-        |> Repo.delete_all()
-
-        entries =
-          buckets
-          |> Enum.map(fn bucket ->
-            post_id = bucket["key"]
-            engagement = bucket["total_engagement"]["value"] || 0
-            published_ms = bucket["published"]["value"] || 0
-            published_dt = DateTime.from_unix!(trunc(published_ms / 1000))
-            hours_old = DateTime.diff(now, published_dt, :second) / 3600.0
-            decay = :math.pow(0.5, hours_old / @half_life_hours)
-            score = engagement * decay
-
-            %{post_id: post_id, score: score, engagement: engagement}
-          end)
-          |> Enum.filter(fn %{engagement: e} -> e >= @min_unique_accounts_posts end)
-          |> Enum.sort_by(& &1.score, :desc)
-          |> Enum.take(100)
-
-        Enum.each(entries, fn %{post_id: post_id, score: score, engagement: eng} ->
-          %TrendingData{}
-          |> TrendingData.changeset(%{
-            type: "post",
-            target_id: post_id,
-            score: score,
-            computed_at: now,
-            metadata: %{engagement: eng}
-          })
-          |> Repo.insert!()
-        end)
-
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("OpenSearch trending posts aggregation failed: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  defp opensearch_compute_trending_hashtags do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-    cutoff = DateTime.add(now, -hashtag_window_hours(), :hour)
-    min_accounts = hashtag_min_accounts()
-
-    query = %{
-      query: %{
-        bool: %{
-          filter: [
-            %{range: %{inserted_at: %{gte: DateTime.to_iso8601(cutoff)}}}
-          ]
-        }
-      },
-      aggs: %{
-        trending_hashtags: %{
-          terms: %{field: "hashtags", size: 100}
-        }
-      },
-      size: 0
-    }
-
-    case OpenSearch.search("hybridsocial_posts", query, size: 0) do
-      {:ok, %{aggregations: %{"trending_hashtags" => %{"buckets" => buckets}}}} ->
-        # Clear old trending hashtags
-        TrendingData
-        |> where([t], t.type == "hashtag")
-        |> Repo.delete_all()
-
-        buckets
-        |> Enum.filter(fn bucket -> bucket["doc_count"] >= min_accounts end)
-        |> Enum.each(fn bucket ->
-          name = bucket["key"]
-          post_count = bucket["doc_count"]
-          score = post_count * :math.log(post_count + 1)
-
-          %TrendingData{}
-          |> TrendingData.changeset(%{
-            type: "hashtag",
-            target_id: name,
-            score: score,
-            computed_at: now,
-            metadata: %{post_count: post_count}
-          })
-          |> Repo.insert!()
-        end)
-
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("OpenSearch trending hashtags aggregation failed: #{inspect(reason)}")
-        {:error, reason}
-    end
-  end
-
-  # --- PostgreSQL Implementations (fallback) ---
+  # --- PostgreSQL Implementations ---
 
   defp pg_compute_trending_posts do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
@@ -492,10 +347,6 @@ defmodule Hybridsocial.Trending do
         acc
       end
     end)
-  end
-
-  defp search_backend do
-    Hybridsocial.Search.search_backend()
   end
 
   defp parse_limit(opts) do
