@@ -230,7 +230,11 @@ export function getAdminTheme(): Promise<AdminThemeConfig> {
   return api.get('/api/v1/admin/theme');
 }
 
-export function saveAdminTheme(theme: AdminThemeConfig): Promise<AdminThemeConfig> {
+// Accepts a partial: the backend only writes the keys present in the
+// payload, so callers can omit fields they don't own (e.g. the Theme
+// page no longer sends instance_name/description — those live on
+// Instance › General now).
+export function saveAdminTheme(theme: Partial<AdminThemeConfig>): Promise<AdminThemeConfig> {
   return api.put('/api/v1/admin/theme', theme);
 }
 

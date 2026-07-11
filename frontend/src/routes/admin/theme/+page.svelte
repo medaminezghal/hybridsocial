@@ -192,7 +192,12 @@
   async function handleSave() {
     saving = true;
     try {
-      await saveAdminTheme(theme);
+      // Instance name & description are edited on Instance › General and
+      // written through the settings API. Strip them from the theme
+      // payload so saving colors here never clobbers a value the operator
+      // just changed there (the backend only writes keys it receives).
+      const { instance_name: _n, instance_description: _d, ...payload } = theme;
+      await saveAdminTheme(payload);
       // Push the new values into the live CSS vars so the admin
       // sees the change instantly — previously a full page reload
       // was required to pick up the saved theme.
@@ -484,15 +489,11 @@
 
       <div class="branding-section card">
         <h3 class="section-title">Branding</h3>
+        <p class="branding-hint">
+          The instance name and description moved to
+          <a href="/admin/instance/general">Instance &rsaquo; General</a>.
+        </p>
         <div class="branding-fields">
-          <div class="branding-field">
-            <label class="color-label" for="instance-name">Instance Name</label>
-            <input id="instance-name" type="text" class="input" bind:value={theme.instance_name} />
-          </div>
-          <div class="branding-field">
-            <label class="color-label" for="instance-desc">Instance Description</label>
-            <textarea id="instance-desc" class="textarea" rows="3" bind:value={theme.instance_description}></textarea>
-          </div>
           <div class="branding-field">
             <label class="color-label">Logo (light mode)</label>
             <div class="upload-row">

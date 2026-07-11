@@ -6,6 +6,20 @@
   import { api } from '$lib/api/client.js';
   import { getDashboardStats } from '$lib/api/admin.js';
   import type { AdminDashboardStats } from '$lib/api/types.js';
+  import { adminSections, type AdminItem } from '$lib/admin-nav.js';
+  import { hasPermission, hasAnyPermission } from '$lib/stores/auth.js';
+
+  // Card hub: the same catalog the sidebar renders, filtered to what this
+  // staffer can reach. Every admin page — including the ones that used to
+  // have no link at all — is one click from here.
+  function itemVisible(item: AdminItem): boolean {
+    if (item.permission) return hasPermission(item.permission);
+    if (item.anyPermission) return hasAnyPermission(...item.anyPermission);
+    return true;
+  }
+  const hubSections = adminSections
+    .map((s) => ({ ...s, items: s.items.filter((i) => i.href !== '/admin' && itemVisible(i)) }))
+    .filter((s) => s.items.length > 0);
 
   let stats: AdminDashboardStats | null = $state(null);
   let pendingApprovalsCount = $state(0);
@@ -144,7 +158,7 @@
         label="Local Users"
         value={stats.total_users.toLocaleString()}
         icon="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
-        href="/admin/users"
+        href="/admin/user-management/users"
       />
       <StatsCard
         label="Total Posts"
@@ -192,26 +206,30 @@
     {/if}
   </div>
 
-  <section class="quick-actions-section">
-    <h2 class="section-heading">Quick actions</h2>
-    <div class="quick-actions-grid">
-      {#each [
-        { href: '/admin/user-management', icon: 'group', label: 'User management' },
-        { href: '/admin/moderation', icon: 'gavel', label: 'Review reports' },
-        { href: '/admin/federation', icon: 'hub', label: 'Federation' },
-        { href: '/admin/theme', icon: 'palette', label: 'Theme & branding' },
-        { href: '/admin/announcements', icon: 'campaign', label: 'Announcements' },
-        { href: '/admin/email', icon: 'mail', label: 'Email settings' },
-        { href: '/admin/tiers', icon: 'workspace_premium', label: 'Tiers' },
-        { href: '/admin/audit-log', icon: 'list', label: 'Audit log' },
-      ] as action (action.href)}
-        <a href={action.href} class="quick-action-card card card-hover">
-          <span class="material-symbols-outlined quick-action-icon" aria-hidden="true">{action.icon}</span>
-          <span class="quick-action-label">{action.label}</span>
-        </a>
-      {/each}
-    </div>
-  </section>
+  {#each hubSections as section (section.title)}
+    <section class="hub-section">
+      <div class="hub-section-head">
+        <h2 class="section-heading">{section.title}</h2>
+        <p class="hub-section-blurb">{section.blurb}</p>
+      </div>
+      <div class="hub-grid">
+        {#each section.items as item (item.href)}
+          <a href={item.href} class="hub-card card card-hover">
+            <span class="hub-card-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d={item.icon} />
+              </svg>
+            </span>
+            <span class="hub-card-text">
+              <span class="hub-card-label">{item.label}</span>
+              <span class="hub-card-desc">{item.description}</span>
+            </span>
+            <svg class="hub-card-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6" /></svg>
+          </a>
+        {/each}
+      </div>
+    </section>
+  {/each}
 
   <section class="services-section metrics-section">
     <h2 class="section-heading">Service metrics</h2>
@@ -247,6 +265,7 @@
         metrics={opensearchMetrics}
         rows={metricRows}
         health={stats?.services?.opensearch ?? null}
+        noChart
       />
     </div>
   </section>
@@ -271,41 +290,79 @@
     margin-block-end: var(--space-6);
   }
 
-  /* Quick actions section: cards in the same visual family as
-     StatsCard but icon-led + label only (no number). */
-  .quick-actions-section {
+  /* Card hub: grouped, description-led cards — the admin mirror of the
+     member settings index. Every section from the nav catalog renders
+     here so nothing is more than one click away. */
+  .hub-section {
     margin-block-end: var(--space-6);
   }
 
-  .quick-actions-grid {
+  .hub-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    margin-block-end: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .hub-section-blurb {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-tertiary);
+  }
+
+  .hub-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: var(--space-3);
   }
 
-  .quick-action-card {
+  .hub-card {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-2);
+    align-items: center;
+    gap: var(--space-3);
     padding: var(--space-4);
     text-decoration: none;
     color: inherit;
   }
 
-  .quick-action-card:hover {
+  .hub-card:hover {
     text-decoration: none;
   }
 
-  .quick-action-icon {
-    font-size: 24px;
+  .hub-card-icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-lg, 12px);
+    display: grid;
+    place-items: center;
+    background: var(--color-primary-soft);
     color: var(--color-primary);
   }
 
-  .quick-action-label {
+  .hub-card-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .hub-card-label {
     font-size: var(--text-sm);
     font-weight: 600;
     color: var(--color-text);
+  }
+
+  .hub-card-desc {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    line-height: 1.35;
+  }
+
+  .hub-card-chevron {
+    flex-shrink: 0;
+    color: var(--color-text-tertiary);
   }
 
   /* Services */

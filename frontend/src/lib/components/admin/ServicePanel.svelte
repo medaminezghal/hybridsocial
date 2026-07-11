@@ -26,6 +26,7 @@
     metrics,
     rows,
     health,
+    noChart = false,
   }: {
     title: string;
     icon: string;
@@ -34,6 +35,10 @@
     metrics: { key: string; label: string; format: (v: number) => string }[];
     rows: SummaryRow[];
     health?: ServiceHealth | null;
+    /** true: render metrics as static value rows — no sparkline, no
+     *  click-to-expand chart. For services whose values change on the
+     *  order of days/weeks (e.g. OpenSearch), a time-series is noise. */
+    noChart?: boolean;
   } = $props();
 
   function formatUptime(seconds: number | undefined): string {
@@ -83,10 +88,49 @@
     }[statusKind],
   );
 
-  let expanded = $state<{ key: string; label: string } | null>(null);
+  let expanded = $state<{ key: string; label: string; format: (v: number) => string } | null>(
+    null,
+  );
   let expandedSeries = $state<SeriesPoint[] | null>(null);
   let expandedWindow = $state<'1h' | '6h' | '24h' | '7d' | '30d'>('1h');
   let expandedLoading = $state(false);
+
+  // Axis scaffolding for the expanded chart: the value range (Y) and the
+  // time span (X) so the curve is actually readable. Without these the
+  // modal was just a bare line with no idea of scale or when.
+  let chartStats = $derived.by(() => {
+    const s = expandedSeries;
+    if (!s || s.length === 0 || !expanded) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    for (const p of s) {
+      if (p.v < min) min = p.v;
+      if (p.v > max) max = p.v;
+    }
+    const fmt = expanded.format;
+    const first = s[0]?.t;
+    const last = s[s.length - 1]?.t;
+    return {
+      maxLabel: fmt(max),
+      midLabel: fmt((min + max) / 2),
+      minLabel: fmt(min),
+      latestLabel: fmt(s[s.length - 1]?.v ?? 0),
+      startLabel: fmtAxisTime(first, expandedWindow),
+      endLabel: fmtAxisTime(last, expandedWindow),
+      flat: max === min,
+    };
+  });
+
+  function fmtAxisTime(iso: string | undefined, window: string): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    // Longer windows read by day; short windows by clock time.
+    if (window === '7d' || window === '30d') {
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  }
 
   async function loadExpandedSeries() {
     if (!expanded) return;
@@ -105,8 +149,9 @@
     }
   }
 
-  function openExpanded(key: string, label: string) {
-    expanded = { key, label };
+  function openExpanded(key: string, label: string, format: (v: number) => string) {
+    if (noChart) return;
+    expanded = { key, label, format };
     expandedSeries = null;
     expandedWindow = '1h';
     loadExpandedSeries();
@@ -154,20 +199,27 @@
   <div class="service-panel-rows">
     {#each metrics as m (m.key)}
       {@const row = byMetric[m.key]}
-      <button
-        type="button"
-        class="service-panel-row"
-        onclick={() => openExpanded(m.key, m.label)}
-        disabled={!row}
-      >
-        <span class="row-label">{m.label}</span>
-        <span class="row-value">{row ? m.format(row.latest.v) : '—'}</span>
-        <span class="row-spark">
-          {#if row && row.sparkline && row.sparkline.length > 1}
-            <Sparkline points={row.sparkline} width={100} height={24} />
-          {/if}
-        </span>
-      </button>
+      {#if noChart}
+        <div class="service-panel-row service-panel-row-static">
+          <span class="row-label">{m.label}</span>
+          <span class="row-value">{row ? m.format(row.latest.v) : '—'}</span>
+        </div>
+      {:else}
+        <button
+          type="button"
+          class="service-panel-row"
+          onclick={() => openExpanded(m.key, m.label, m.format)}
+          disabled={!row}
+        >
+          <span class="row-label">{m.label}</span>
+          <span class="row-value">{row ? m.format(row.latest.v) : '—'}</span>
+          <span class="row-spark">
+            {#if row && row.sparkline && row.sparkline.length > 1}
+              <Sparkline points={row.sparkline} width={100} height={24} />
+            {/if}
+          </span>
+        </button>
+      {/if}
     {/each}
   </div>
 </section>
@@ -198,8 +250,35 @@
           <p class="metric-modal-loading">Loading…</p>
         {:else if !expandedSeries || expandedSeries.length === 0}
           <p class="metric-modal-empty">No data for this window yet.</p>
-        {:else}
-          <Sparkline points={expandedSeries} width={640} height={220} />
+        {:else if chartStats}
+          <div class="metric-chart">
+            {#if chartStats.latestLabel}
+              <p class="metric-chart-latest">
+                <span class="metric-chart-latest-value">{chartStats.latestLabel}</span>
+                <span class="metric-chart-latest-caption">current</span>
+              </p>
+            {/if}
+            <div class="metric-chart-plot">
+              <div class="metric-chart-yaxis" aria-hidden="true">
+                <span>{chartStats.maxLabel}</span>
+                <span>{chartStats.midLabel}</span>
+                <span>{chartStats.minLabel}</span>
+              </div>
+              <div class="metric-chart-canvas">
+                <div class="metric-chart-grid" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </div>
+                <Sparkline points={expandedSeries} width={620} height={200} padded={false} />
+              </div>
+            </div>
+            <div class="metric-chart-xaxis" aria-hidden="true">
+              <span class="metric-chart-xaxis-spacer"></span>
+              <span class="metric-chart-xaxis-times">
+                <span>{chartStats.startLabel}</span>
+                <span>{chartStats.endLabel}</span>
+              </span>
+            </div>
+          </div>
         {/if}
       </div>
     </div>
@@ -327,6 +406,13 @@
     opacity: 0.5;
   }
 
+  /* Static (no-chart) rows: just label + value, no sparkline column,
+     no pointer affordance — the value is the whole story. */
+  .service-panel-row-static {
+    grid-template-columns: 1fr auto;
+    cursor: default;
+  }
+
   .row-label {
     font-size: 0.8125rem;
     color: var(--color-text-secondary);
@@ -421,7 +507,7 @@
   }
 
   .metric-modal-chart {
-    min-height: 220px;
+    min-height: 240px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -431,5 +517,93 @@
   .metric-modal-empty {
     color: var(--color-text-tertiary);
     font-size: 0.875rem;
+  }
+
+  .metric-chart {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .metric-chart-latest {
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .metric-chart-latest-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--color-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric-chart-latest-caption {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-tertiary);
+  }
+
+  .metric-chart-plot {
+    display: grid;
+    grid-template-columns: 52px 1fr;
+    gap: 10px;
+  }
+
+  .metric-chart-yaxis {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    text-align: end;
+    height: 200px;
+    font-size: 0.7rem;
+    color: var(--color-text-tertiary);
+    font-variant-numeric: tabular-nums;
+    /* Nudge labels so they sit on the gridline rather than below it. */
+    transform: translateY(-0.5em);
+  }
+
+  .metric-chart-canvas {
+    position: relative;
+    height: 200px;
+  }
+
+  .metric-chart-grid {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+
+  .metric-chart-grid span {
+    display: block;
+    height: 0;
+    border-top: 1px dashed var(--color-border);
+  }
+
+  .metric-chart-canvas :global(svg.sparkline) {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .metric-chart-xaxis {
+    display: grid;
+    grid-template-columns: 52px 1fr;
+    gap: 10px;
+  }
+
+  .metric-chart-xaxis-times {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: var(--color-text-tertiary);
+    font-variant-numeric: tabular-nums;
   }
 </style>
