@@ -425,6 +425,8 @@
         {#if !twoFactorEnabled && !showSetup}
           <p class="stitch-description">
             Add an extra layer of security to your account by enabling two-factor authentication.
+            It also unlocks an <strong>account recovery code</strong>, a backup that lets you
+            reset your password if you ever lose access to your email.
           </p>
           <div class="stitch-actions">
             <button class="stitch-btn-outline" type="button" onclick={handleSetup2FA} disabled={twoFALoading}>
@@ -495,6 +497,17 @@
               Disable 2FA
             </button>
           </div>
+          {#if recoveryStatus && !recoveryStatus.enabled}
+            <div class="recovery-warn" role="note">
+              <span class="material-symbols-outlined" aria-hidden="true">key</span>
+              <div>
+                <strong>Set up your account recovery code.</strong>
+                You have 2FA on but no recovery code yet, so if you lose access to your
+                email you won't be able to get back in.
+                <a href="#recovery-code">Generate one below.</a>
+              </div>
+            </div>
+          {/if}
         {:else if showDisable}
           <form onsubmit={(e) => { e.preventDefault(); handleDisable2FA(); }}>
             <div class="stitch-field">
@@ -581,7 +594,7 @@
   </section>
 
   <!-- Account recovery code -->
-  <section class="stitch-section">
+  <section class="stitch-section" id="recovery-code">
     <div class="stitch-section-heading">
       <span class="stitch-section-icon" aria-hidden="true">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -641,12 +654,14 @@
               {/if}
             </div>
           {:else}
-            <div class="recovery-state off">
-              <strong>No recovery code set.</strong>
-              <span class="recovery-state-meta">
-                Optional. If you lose email access and your password, you'll
-                have no way back into the account without one.
-              </span>
+            <div class="recovery-warn" role="note">
+              <span class="material-symbols-outlined" aria-hidden="true">warning</span>
+              <div>
+                <strong>No recovery code set.</strong>
+                If you lose access to your email and forget your password, you'll
+                have no way back into this account. Generate one now and store it
+                somewhere safe.
+              </div>
             </div>
           {/if}
 
@@ -852,6 +867,39 @@
   .recovery-state-meta {
     font-size: var(--text-xs);
     color: var(--color-text-tertiary);
+  }
+
+  /* Actionable warning callout: shown when 2FA is on but no recovery
+     code is set (in both the 2FA section as a nudge and the recovery
+     section). Draws the eye to a step the user can act on right now. */
+  .recovery-warn {
+    display: flex;
+    gap: var(--space-2);
+    align-items: flex-start;
+    padding: var(--space-3);
+    margin-block-end: var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--color-warning-soft, rgba(234, 179, 8, 0.12));
+    border: 1px solid var(--color-warning, #eab308);
+    font-size: var(--text-sm);
+    color: var(--color-text);
+    line-height: 1.5;
+  }
+
+  .recovery-warn .material-symbols-outlined {
+    font-size: 20px;
+    color: var(--color-warning, #eab308);
+    flex-shrink: 0;
+  }
+
+  .recovery-warn a {
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  /* Clear the sticky settings header when the 2FA nudge anchors here. */
+  #recovery-code {
+    scroll-margin-block-start: var(--space-8);
   }
 
   .recovery-form {
