@@ -69,8 +69,15 @@ defmodule Hybridsocial.Federation.ActivityMapper do
     # rendered HTML we display. Remote peers send HTML in `content`,
     # so we strip it here — the same stripper is reused by the DM
     # ingest path so plaintext extraction is consistent across both.
-    raw_html = ap_object["content"]
-    plaintext = Hybridsocial.Content.HtmlStripper.to_plaintext(raw_html)
+    #
+    # Inline <img> are dropped from the HTML: peers like Hubzilla/streams
+    # embed post images both inline AND as attachments, so they'd render
+    # twice, and inline images load straight from the origin host, bypassing
+    # our media proxy. Plaintext is derived from the ORIGINAL html (before
+    # stripping) so this change leaves the plaintext column untouched.
+    raw_content = ap_object["content"]
+    raw_html = strip_inline_images(raw_content)
+    plaintext = Hybridsocial.Content.HtmlStripper.to_plaintext(raw_content)
 
     attrs = %{
       "ap_id" => ap_object["id"],
@@ -134,6 +141,48 @@ defmodule Hybridsocial.Federation.ActivityMapper do
   end
 
   defp hashtag_entry(_), do: []
+
+  @doc """
+  Resolves a remote attachment's content type. Prefers the peer-declared
+  `mediaType`, but many peers (Hubzilla/streams, some Misskey forks) omit
+  it, leaving `application/octet-stream` and an attachment that renders as
+  "unknown". Falls back to the URL's file extension via `MIME.from_path/1`,
+  which itself returns `application/octet-stream` for unknown extensions.
+  """
+  def resolve_remote_content_type(media_type, _url)
+      when is_binary(media_type) and media_type != "" and
+             media_type != "application/octet-stream",
+      do: media_type
+
+  def resolve_remote_content_type(_media_type, url) when is_binary(url) do
+    MIME.from_path(URI.parse(url).path || url)
+  end
+
+  def resolve_remote_content_type(_media_type, _url), do: "application/octet-stream"
+
+  @doc """
+  Strips inline `<img>` tags from remote post HTML. Peers such as
+  Hubzilla/streams embed post images inline in the body AND as attachments,
+  so they render twice — and inline `<img>` loads straight from the origin
+  host, bypassing our media proxy. Dropping them routes all remote media
+  through attachments + the proxy, matching local posts and Mastodon.
+
+  Custom-emoji images (`<img class="emoji">`) are preserved — they're the one
+  legitimate inline image and carry no proxy or duplication concern.
+  """
+  def strip_inline_images(nil), do: nil
+
+  def strip_inline_images(html) when is_binary(html) do
+    Regex.replace(~r/<img\b[^>]*>/i, html, fn tag ->
+      if emoji_img?(tag), do: tag, else: ""
+    end)
+  end
+
+  def strip_inline_images(other), do: other
+
+  defp emoji_img?(tag) do
+    Regex.match?(~r/class\s*=\s*["'][^"']*\bemoji\b[^"']*["']/i, tag)
+  end
 
   @doc """
   Best-effort normalization of an AP actor `url` (which may be a string, a

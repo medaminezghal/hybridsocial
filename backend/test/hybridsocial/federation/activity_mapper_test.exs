@@ -323,4 +323,77 @@ defmodule Hybridsocial.Federation.ActivityMapperTest do
       assert ActivityMapper.normalize_profile_url(nil) == nil
     end
   end
+
+  describe "resolve_remote_content_type/2" do
+    test "prefers a concrete peer-declared mediaType" do
+      assert ActivityMapper.resolve_remote_content_type("image/png", "https://x/a") ==
+               "image/png"
+
+      assert ActivityMapper.resolve_remote_content_type("video/mp4", "https://x/a.png") ==
+               "video/mp4"
+    end
+
+    test "infers from the URL extension when mediaType is missing or generic" do
+      png = "https://libera.site/_stats/pixelfed/userdiff20260711.13.png"
+      assert ActivityMapper.resolve_remote_content_type(nil, png) == "image/png"
+      assert ActivityMapper.resolve_remote_content_type("", png) == "image/png"
+
+      assert ActivityMapper.resolve_remote_content_type("application/octet-stream", png) ==
+               "image/png"
+
+      assert ActivityMapper.resolve_remote_content_type(nil, "https://x/clip.mp4") ==
+               "video/mp4"
+    end
+
+    test "ignores query strings and falls back to octet-stream for unknown extensions" do
+      assert ActivityMapper.resolve_remote_content_type(nil, "https://x/a.jpg?v=2") ==
+               "image/jpeg"
+
+      assert ActivityMapper.resolve_remote_content_type(nil, "https://x/thing") ==
+               "application/octet-stream"
+
+      assert ActivityMapper.resolve_remote_content_type(nil, nil) == "application/octet-stream"
+    end
+  end
+
+  describe "strip_inline_images/1" do
+    test "drops inline <img> but keeps surrounding markup" do
+      html = ~s(<p>Charts:</p><img src="https://libera.site/a.png" alt="chart"><p>end</p>)
+      result = ActivityMapper.strip_inline_images(html)
+
+      refute result =~ "<img"
+      assert result =~ "<p>Charts:</p>"
+      assert result =~ "<p>end</p>"
+    end
+
+    test "preserves custom-emoji images" do
+      html = ~s(hi <img class="emoji" src="https://x/blob.png" alt=":blob:"> there)
+      assert ActivityMapper.strip_inline_images(html) == html
+    end
+
+    test "handles multiple images and passes through nil / non-binary" do
+      html = ~s(<img src="1.png"><img src="2.png">text)
+      assert ActivityMapper.strip_inline_images(html) == "text"
+      assert ActivityMapper.strip_inline_images(nil) == nil
+    end
+  end
+
+  describe "to_post/1 inline image handling" do
+    test "strips inline images from content_html while keeping plaintext" do
+      ap_object = %{
+        "id" => "https://remote.example/objects/note-img",
+        "type" => "Note",
+        "content" => ~s(<p>See chart</p><img src="https://remote.example/c.png" alt="c">),
+        "attributedTo" => "https://remote.example/users/alice",
+        "published" => "2026-03-22T12:00:00Z",
+        "to" => ["https://www.w3.org/ns/activitystreams#Public"]
+      }
+
+      result = ActivityMapper.to_post(ap_object)
+
+      refute result["content_html"] =~ "<img"
+      assert result["content_html"] =~ "See chart"
+      assert result["content"] == "See chart"
+    end
+  end
 end

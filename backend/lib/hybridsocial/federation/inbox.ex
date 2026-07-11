@@ -691,8 +691,10 @@ defmodule Hybridsocial.Federation.Inbox do
 
     Enum.each(attachments, fn attachment ->
       with %{"url" => url} when is_binary(url) <- attachment,
-           media_type <- attachment["mediaType"] || "application/octet-stream",
            domain when is_binary(domain) <- ActivityMapper.extract_domain(url) do
+        # Peers that omit mediaType leave us with octet-stream → "unknown"
+        # type → a broken tile. Infer from the URL extension instead.
+        media_type = ActivityMapper.resolve_remote_content_type(attachment["mediaType"], url)
         focal_point = attachment["focalPoint"] || []
 
         attrs = %{
