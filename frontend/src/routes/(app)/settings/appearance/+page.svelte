@@ -1,0 +1,185 @@
+<script lang="ts">
+  import { preferencesStore, updatePreferences } from '$lib/stores/preferences.js';
+  import { themeStore, resolvedMode } from '$lib/stores/theme.js';
+  import { instanceName } from '$lib/stores/instance.js';
+
+  type Mode = 'auto' | 'light' | 'dark';
+
+  // The instance (admin) default, used when the user hasn't picked a mode.
+  let adminDefault = $derived((($themeStore?.mode as Mode) || 'auto') as Mode);
+
+  // What to show as selected: the user's explicit choice, else the admin
+  // default. Picking any option makes it an explicit choice.
+  let selected = $derived(($preferencesStore.theme_mode ?? adminDefault) as Mode);
+
+  const options: { value: Mode; label: string; desc: string; icon: string }[] = [
+    {
+      value: 'auto',
+      label: 'System',
+      desc: "Match your device's light or dark setting",
+      icon: 'M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zm0 0v18',
+    },
+    {
+      value: 'light',
+      label: 'Light',
+      desc: 'Always use the light theme',
+      icon: 'M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z',
+    },
+    {
+      value: 'dark',
+      label: 'Dark',
+      desc: 'Always use the dark theme',
+      icon: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z',
+    },
+  ];
+
+  function choose(mode: Mode) {
+    // Persists to localStorage + (when signed in) the account preferences in
+    // the database; theme.ts re-applies it immediately via its subscription.
+    updatePreferences({ theme_mode: mode });
+  }
+</script>
+
+<svelte:head>
+  <title>Appearance - {$instanceName}</title>
+</svelte:head>
+
+<div class="appearance-page">
+  <header class="appearance-head">
+    <h1>Appearance</h1>
+    <p>
+      Choose how {$instanceName} looks. <strong>System</strong> follows your device.
+      Your choice is saved to your account and this device.
+    </p>
+  </header>
+
+  <div class="theme-options" role="radiogroup" aria-label="Theme">
+    {#each options as opt (opt.value)}
+      <button
+        type="button"
+        role="radio"
+        aria-checked={selected === opt.value}
+        class="theme-option"
+        class:selected={selected === opt.value}
+        onclick={() => choose(opt.value)}
+      >
+        <span class="theme-option-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d={opt.icon} />
+          </svg>
+        </span>
+        <span class="theme-option-text">
+          <span class="theme-option-label">{opt.label}</span>
+          <span class="theme-option-desc">{opt.desc}</span>
+        </span>
+        <span class="theme-option-check" aria-hidden="true">
+          {#if selected === opt.value}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+          {/if}
+        </span>
+      </button>
+    {/each}
+  </div>
+
+  <p class="appearance-note">
+    Currently showing the <strong>{$resolvedMode}</strong> theme.
+    {#if $preferencesStore.theme_mode == null}
+      Following the instance default (<strong>{adminDefault}</strong>).
+    {/if}
+  </p>
+</div>
+
+<style>
+  .appearance-page {
+    max-width: var(--feed-max-width);
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+  }
+
+  .appearance-head h1 {
+    font-size: var(--text-xl);
+    font-weight: 700;
+    color: var(--color-text);
+    margin: 0 0 var(--space-2);
+  }
+
+  .appearance-head p {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  .theme-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .theme-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-4);
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    text-align: start;
+    transition: border-color 150ms ease, background 150ms ease;
+  }
+
+  .theme-option:hover {
+    border-color: var(--color-primary);
+  }
+
+  .theme-option.selected {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft, rgba(var(--color-primary-rgb), 0.08));
+  }
+
+  .theme-option-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-container);
+    color: var(--color-primary);
+  }
+
+  .theme-option-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .theme-option-label {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .theme-option-desc {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+
+  .theme-option-check {
+    flex-shrink: 0;
+    color: var(--color-primary);
+  }
+
+  .appearance-note {
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+    margin: 0;
+  }
+</style>

@@ -23,6 +23,7 @@ export const settingsGroups: SettingsGroup[] = [
       { href: '/settings/account', label: 'Account', description: 'Email, language, verification, and deletion', icon: 'M12 15v2m-6 4h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2zm10-10V7a4 4 0 0 0-8 0v4' },
       { href: '/settings/notifications', label: 'Notifications', description: 'Choose what you get notified about', icon: 'M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0' },
       { href: '/settings/privacy', label: 'Privacy', description: 'Visibility, discoverability, and messages', icon: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' },
+      { href: '/settings/appearance', label: 'Appearance', description: 'Light, dark, or match your system', icon: 'M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9zm0 0v18' },
     ],
   },
   {

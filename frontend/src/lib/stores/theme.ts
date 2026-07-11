@@ -1,6 +1,7 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import type { ThemeConfig } from '$lib/api/types.js';
 import { browser } from '$app/environment';
+import { preferencesStore } from './preferences.js';
 
 export const themeStore = writable<ThemeConfig | null>(null);
 
@@ -155,22 +156,54 @@ function resolveMode(mode: ThemeMode): 'light' | 'dark' {
   return mode;
 }
 
+// The user's explicit theme choice ('auto' | 'light' | 'dark'), or null when
+// they haven't picked one — in which case we follow the instance default.
+function userThemeMode(): ThemeMode | null {
+  const m = get(preferencesStore).theme_mode;
+  return m === 'auto' || m === 'light' || m === 'dark' ? m : null;
+}
+
+// Precedence: the user's explicit choice wins over the admin-configured
+// instance default, which in turn falls back to 'auto' (follow the OS).
+function effectiveMode(cfg: Record<string, unknown>): ThemeMode {
+  const adminDefault = (str(cfg.mode) as ThemeMode) || 'auto';
+  return userThemeMode() ?? adminDefault;
+}
+
 export function applyTheme(config: ThemeConfig | null): void {
   themeStore.set(config);
   currentConfig = config;
   if (!browser) return;
 
   const cfg = (config ?? {}) as Record<string, unknown>;
-  const mode = (str(cfg.mode) as ThemeMode) || 'auto';
 
-  // Keep dark/light in sync with the OS while mode is 'auto'.
+  // Keep dark/light in sync with the OS while the effective mode is 'auto'.
   if (!mql) mql = window.matchMedia('(prefers-color-scheme: dark)');
   mql.onchange = () => {
-    const m = (str((currentConfig ?? {}) as Record<string, unknown>).mode as ThemeMode) || 'auto';
-    if (m === 'auto') render((currentConfig ?? {}) as Record<string, unknown>, 'auto');
+    const c = (currentConfig ?? {}) as Record<string, unknown>;
+    if (effectiveMode(c) === 'auto') render(c, 'auto');
   };
 
-  render(cfg, mode);
+  render(cfg, effectiveMode(cfg));
+}
+
+// Re-apply the theme whenever the user's theme_mode preference changes — when
+// they pick a mode in settings, or when it's hydrated from the server on
+// login (cross-device). The colours still come from the admin config; only
+// the light/dark selection follows the user.
+if (browser) {
+  // Seed with the current value so the subscription's immediate fire is a
+  // no-op — applyTheme() handles the initial render. Only a genuine *change*
+  // (user picks a mode, or the server hydrates one on login) re-applies,
+  // which avoids a flash racing against the first applyTheme call.
+  let lastThemeMode = get(preferencesStore).theme_mode;
+  preferencesStore.subscribe((p) => {
+    if (p.theme_mode !== lastThemeMode) {
+      lastThemeMode = p.theme_mode;
+      const c = (currentConfig ?? {}) as Record<string, unknown>;
+      render(c, effectiveMode(c));
+    }
+  });
 }
 
 function render(cfg: Record<string, unknown>, mode: ThemeMode): void {

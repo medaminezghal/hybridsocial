@@ -499,6 +499,8 @@ export interface UserPreferences {
   default_visibility: Post['visibility'];
   default_language: string | null;
   comment_style: 'threaded' | 'flat';
+  /** User's theme choice. `null` = follow the instance (admin) default. */
+  theme_mode: 'auto' | 'light' | 'dark' | null;
 }
 
 export interface NotificationPreferences {

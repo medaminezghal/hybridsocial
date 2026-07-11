@@ -11,7 +11,8 @@ const defaults: UserPreferences = {
   auto_play_media: true,
   default_visibility: 'public',
   default_language: null,
-  comment_style: 'threaded'
+  comment_style: 'threaded',
+  theme_mode: null,
 };
 
 function loadPreferences(): UserPreferences {
@@ -70,6 +71,7 @@ export function applyServerPreferences(serverPrefs: Record<string, any>, default
       if (serverPrefs.auto_play_media !== undefined) merged.auto_play_media = serverPrefs.auto_play_media;
       if (serverPrefs.default_language !== undefined) merged.default_language = serverPrefs.default_language;
       if (serverPrefs.comment_style) merged.comment_style = serverPrefs.comment_style;
+      if (serverPrefs.theme_mode !== undefined) merged.theme_mode = serverPrefs.theme_mode;
     }
 
     saveLocal(merged);
@@ -96,6 +98,7 @@ function syncToServer(partial: Partial<UserPreferences>): void {
           auto_play_media: prefs.auto_play_media,
           default_language: prefs.default_language,
           comment_style: prefs.comment_style,
+          theme_mode: prefs.theme_mode,
         },
         ...(partial.default_visibility ? { default_visibility: partial.default_visibility } : {}),
       });
