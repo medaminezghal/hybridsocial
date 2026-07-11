@@ -3,6 +3,7 @@
   import { api } from '$lib/api/client.js';
   import { addToast } from '$lib/stores/toast.js';
   import Spinner from '$lib/components/ui/Spinner.svelte';
+  import MigrationSettings from '$lib/components/settings/MigrationSettings.svelte';
 
   interface ExportEntry {
     id: string;
@@ -271,6 +272,9 @@
     </div>
   </section>
 </div>
+
+<!-- Merged in: account migration (aliases + move to another server) -->
+<MigrationSettings />
 
 <style>
   .stitch-settings {

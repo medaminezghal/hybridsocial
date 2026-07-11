@@ -9,6 +9,7 @@
   import Spinner from '$lib/components/ui/Spinner.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
   import QRCode from 'qrcode';
+  import SessionsSettings from '$lib/components/settings/SessionsSettings.svelte';
 
   import { api } from '$lib/api/client.js';
   import {
@@ -799,6 +800,9 @@
   </section>
 
 </div>
+
+<!-- Merged in: signed-in devices / sessions -->
+<SessionsSettings />
 
 <Modal bind:open={showDeleteKeyModal} title="Remove this security key?" onclose={() => { keyToDelete = null; }}>
   {#if keyToDelete}
