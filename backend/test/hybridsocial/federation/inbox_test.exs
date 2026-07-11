@@ -354,6 +354,64 @@ defmodule Hybridsocial.Federation.InboxTest do
     end
   end
 
+  describe "process/1 - Update (poll-vote contract)" do
+    test "a poll-vote Question Update refreshes tallies and returns {:ok, _}" do
+      # Regression: Mastodon broadcasts an Update on every poll vote. The
+      # Question handler returned bare `:ok`, which bubbled up and crashed
+      # the inbox controller's `with {:ok, _result} <- Inbox.process(..)`
+      # (WithClauseError: no with clause matching: :ok) — the sender saw a
+      # 500 on every vote. Inbox.process must return the `{:ok, _}` contract.
+      remote_ap_id = "https://remote.example/users/pollster"
+      _remote = create_remote_identity(remote_ap_id, "pollster_remote")
+      question_id = "https://remote.example/objects/poll-1"
+
+      option = fn name, total ->
+        %{
+          "type" => "Note",
+          "name" => name,
+          "replies" => %{"type" => "Collection", "totalItems" => total}
+        }
+      end
+
+      create = %{
+        "@context" => "https://www.w3.org/ns/activitystreams",
+        "id" => "https://remote.example/activities/create-poll-1",
+        "type" => "Create",
+        "actor" => remote_ap_id,
+        "object" => %{
+          "id" => question_id,
+          "type" => "Question",
+          "content" => "<p>Favourite colour?</p>",
+          "attributedTo" => remote_ap_id,
+          "published" => "2026-03-22T10:00:00Z",
+          "endTime" => "2026-12-31T00:00:00Z",
+          "votersCount" => 2,
+          "oneOf" => [option.("Red", 1), option.("Blue", 1)],
+          "to" => ["https://www.w3.org/ns/activitystreams#Public"],
+          "cc" => ["#{remote_ap_id}/followers"]
+        }
+      }
+
+      assert {:ok, _post} = Inbox.process(create)
+
+      update = %{
+        "@context" => "https://www.w3.org/ns/activitystreams",
+        "id" => "https://remote.example/activities/update-poll-1",
+        "type" => "Update",
+        "actor" => remote_ap_id,
+        "object" => %{
+          "id" => question_id,
+          "type" => "Question",
+          "attributedTo" => remote_ap_id,
+          "votersCount" => 5,
+          "oneOf" => [option.("Red", 3), option.("Blue", 2)]
+        }
+      }
+
+      assert {:ok, _} = Inbox.process(update)
+    end
+  end
+
   describe "process/1 - Like" do
     test "creates a like reaction on a local post" do
       local = create_local_identity("like_target")

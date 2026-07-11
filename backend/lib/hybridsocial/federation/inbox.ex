@@ -35,7 +35,15 @@ defmodule Hybridsocial.Federation.Inbox do
     with :ok <- run_containment(activity),
          {:ok, activity} <- run_validation(activity),
          {:ok, activity} <- run_mrf(activity) do
-      dispatch(type, activity)
+      # Some handlers legitimately have no result to return and hand back
+      # bare `:ok` (e.g. a poll-vote Update that just refreshes cached
+      # tallies). Normalise to the `{:ok, _}` contract the inbox
+      # controller's `with` expects, so a valid activity can never crash
+      # the pipeline with a WithClauseError.
+      case dispatch(type, activity) do
+        :ok -> {:ok, :accepted}
+        other -> other
+      end
     end
   end
 
@@ -875,7 +883,7 @@ defmodule Hybridsocial.Federation.Inbox do
             |> Ecto.Query.where([p], p.id == ^poll.id)
             |> Repo.update_all(set: [voters_count: voters_count])
 
-            :ok
+            {:ok, :poll_updated}
         end
     end
   end
