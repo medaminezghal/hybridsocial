@@ -1478,6 +1478,12 @@ defmodule Hybridsocial.Federation.Inbox do
                 # Persist any media attachments from the backfilled
                 # parent post too — same proxy-on-demand model.
                 persist_remote_attachments(parent_post, object, remote_identity)
+                # Link its hashtags as well, so a post that entered our DB
+                # by being fetched as a thread ancestor still gets its tag
+                # chips and can trend — the inbox-delivery path does this,
+                # but this backfill path used to skip it (posts showed
+                # inline #tags with no extracted chips).
+                persist_remote_hashtags(parent_post, object)
                 # Link the child post to this newly fetched parent
                 link_child_to_parent(child_post_id, parent_post)
                 {:ok, parent_post, grandparent_ap_id}
