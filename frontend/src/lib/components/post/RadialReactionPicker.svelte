@@ -262,6 +262,10 @@
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
+    /* Kill the iOS tap-highlight flash and any selection outline when the
+       armed backdrop is tapped (the tap lands on the overlay, not the
+       link behind it, but suppress highlight defensively). */
+    -webkit-tap-highlight-color: transparent;
     touch-action: none;
   }
 
