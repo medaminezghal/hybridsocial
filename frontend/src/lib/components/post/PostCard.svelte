@@ -148,9 +148,9 @@
   let contentEl: HTMLDivElement | undefined = $state();
 
   let fullHeight = $state(0);
-  const collapsedHeight = 110; // ~4 lines: 4 * 15px * 1.65
+  const collapsedHeight = 248; // ~10 lines: 10 * 15px * 1.6 line-height + buffer
 
-  // Check if content overflows 4 lines
+  // Check if content overflows 10 lines
   $effect(() => {
     if (contentEl && !detail) {
       fullHeight = contentEl.scrollHeight;
@@ -1877,8 +1877,7 @@
   }
 
   .post-content-collapsed {
-    -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
-    mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+    overflow: hidden;
   }
 
   .content-toggle-btn {
