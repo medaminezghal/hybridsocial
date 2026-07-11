@@ -77,6 +77,24 @@ defmodule Hybridsocial.Media.Backends.S3 do
   end
 
   @impl true
+  def exists?(storage_path) do
+    bucket = s3_bucket()
+    request = ExAws.S3.head_object(bucket, storage_path)
+
+    case ExAws.request(request, s3_request_overrides()) do
+      {:ok, _response} ->
+        {:ok, true}
+
+      {:error, {:http_error, 404, _}} ->
+        {:ok, false}
+
+      {:error, reason} ->
+        Logger.warning("S3 head failed for #{storage_path}: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @impl true
   def url(storage_path) do
     case Application.get_env(:hybridsocial, :media_host) do
       host when is_binary(host) and host != "" ->

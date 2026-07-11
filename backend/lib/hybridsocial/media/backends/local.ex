@@ -60,6 +60,11 @@ defmodule Hybridsocial.Media.Backends.Local do
   end
 
   @impl true
+  def exists?(storage_path) do
+    {:ok, File.exists?(full_path(storage_path))}
+  end
+
+  @impl true
   def url(storage_path) do
     case Application.get_env(:hybridsocial, :media_host) do
       host when is_binary(host) and host != "" ->

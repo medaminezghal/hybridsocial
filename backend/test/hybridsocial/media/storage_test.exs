@@ -67,6 +67,29 @@ defmodule Hybridsocial.Media.StorageTest do
     end
   end
 
+  describe "exists?/1" do
+    test "returns {:ok, true} for a stored file" do
+      upload = make_upload("test content", "image/png", "png")
+      {:ok, storage_path} = Storage.store(upload, "some-identity-id")
+      cleanup_storage(storage_path)
+
+      assert {:ok, true} = Storage.exists?(storage_path)
+    end
+
+    test "returns {:ok, false} for a missing file" do
+      assert {:ok, false} = Storage.exists?("images/2026/03/does-not-exist.png")
+    end
+
+    test "returns {:ok, false} after the file is deleted" do
+      upload = make_upload("test content", "image/jpeg", "jpg")
+      {:ok, storage_path} = Storage.store(upload, "some-identity-id")
+
+      assert {:ok, true} = Storage.exists?(storage_path)
+      assert :ok = Storage.delete(storage_path)
+      assert {:ok, false} = Storage.exists?(storage_path)
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # URL generation
   # ---------------------------------------------------------------------------

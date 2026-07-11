@@ -143,6 +143,196 @@ defmodule Hybridsocial.Release do
     {:ok, tagged, total}
   end
 
+  @doc """
+  READ-ONLY audit: find LOCAL image uploads whose backing file is
+  missing from storage — the `media` row still points at a
+  `storage_path`, but the object no longer exists in the active
+  backend (R2/S3/local). Those are the posts that render a broken
+  image.
+
+  Deletes nothing. Prints a per-post report and returns:
+
+      %{broken_posts: [%{post_id, identity_id, inserted_at, media: [...]}],
+        uncertain:    [%{media_id, storage_path, reason}],
+        scanned:      n}
+
+  `uncertain` rows are ones where the storage HEAD check errored
+  (network/permission blip) — they are NEVER counted as broken and
+  never deleted.
+
+  Run on the LIVE node so Repo + Config + the storage backend are
+  already started:
+
+      bin/hybridsocial rpc "Hybridsocial.Release.report_broken_media()"
+      bin/hybridsocial rpc "Hybridsocial.Release.report_broken_media(limit: 500)"
+  """
+  def report_broken_media(opts \\ []) do
+    result = scan_broken_media(opts)
+    print_broken_media_report(result)
+    result
+  end
+
+  @doc """
+  DESTRUCTIVE. Re-runs the broken-media scan and soft-deletes every
+  post that has at least one confirmed-missing image, using the full
+  deletion path (federation Delete, PubSub broadcast, reply-count
+  fixup, moderation webhook) via `Social.Posts.delete_post/2`.
+
+  Posts whose media only came back "uncertain" (storage HEAD errored)
+  are left untouched. Requires `confirm: true` as a fat-finger guard:
+
+      bin/hybridsocial rpc "Hybridsocial.Release.delete_broken_media_posts(confirm: true)"
+
+  Returns `%{deleted: n, failed: [...]}`.
+  """
+  def delete_broken_media_posts(opts \\ []) do
+    if Keyword.get(opts, :confirm) == true do
+      alias Hybridsocial.Social.Posts
+
+      %{broken_posts: broken_posts} = result = scan_broken_media(opts)
+      print_broken_media_report(result)
+
+      IO.puts("[broken-media] deleting #{length(broken_posts)} post(s) with missing images...")
+
+      {deleted, failed} =
+        Enum.reduce(broken_posts, {0, []}, fn post, {ok, bad} ->
+          # Pass the post's own identity_id so the ownership check in
+          # delete_post/2 passes — all candidates are local uploads and
+          # thus locally-authored, so this reuses the correct deletion
+          # side effects without an unauthenticated delete path.
+          case Posts.delete_post(post.post_id, post.identity_id) do
+            {:ok, _} ->
+              IO.puts("    deleted post #{post.post_id}")
+              {ok + 1, bad}
+
+            error ->
+              IO.puts("    FAILED post #{post.post_id}: #{inspect(error)}")
+              {ok, [%{post_id: post.post_id, error: error} | bad]}
+          end
+        end)
+
+      IO.puts("[broken-media] done: #{deleted} deleted, #{length(failed)} failed")
+      %{deleted: deleted, failed: failed}
+    else
+      IO.puts(
+        "Refusing to delete without `confirm: true`. Run report_broken_media/0 first, then re-run with confirm: true."
+      )
+
+      {:error, :not_confirmed}
+    end
+  end
+
+  defp scan_broken_media(opts) do
+    import Ecto.Query
+    alias Hybridsocial.Media.{MediaFile, Storage}
+    alias Hybridsocial.Repo
+    alias Hybridsocial.Social.Post
+
+    limit = Keyword.get(opts, :limit)
+
+    base =
+      from m in MediaFile,
+        join: p in Post,
+        on: p.id == m.post_id,
+        where:
+          is_nil(m.deleted_at) and is_nil(p.deleted_at) and
+            not is_nil(m.storage_path) and m.storage_path != "" and
+            ilike(m.content_type, "image/%"),
+        order_by: [asc: p.inserted_at],
+        select: %{
+          media_id: m.id,
+          storage_path: m.storage_path,
+          content_type: m.content_type,
+          post_id: m.post_id,
+          identity_id: p.identity_id,
+          inserted_at: p.inserted_at
+        }
+
+    query = if is_integer(limit), do: from(q in base, limit: ^limit), else: base
+    rows = Repo.all(query)
+    scanned = length(rows)
+    IO.puts("[broken-media] checking #{scanned} local image attachment(s) against storage...")
+
+    {broken_rows, uncertain} =
+      rows
+      |> Task.async_stream(
+        fn row -> {row, Storage.exists?(row.storage_path)} end,
+        max_concurrency: 8,
+        timeout: 30_000,
+        on_timeout: :kill_task,
+        ordered: false
+      )
+      |> Enum.reduce({[], []}, fn
+        {:ok, {_row, {:ok, true}}}, acc ->
+          acc
+
+        {:ok, {row, {:ok, false}}}, {broken, uncertain} ->
+          {[row | broken], uncertain}
+
+        {:ok, {row, {:error, reason}}}, {broken, uncertain} ->
+          {broken, [Map.put(row, :reason, reason) | uncertain]}
+
+        # Timeout/crash during the HEAD check — treat as uncertain, never broken.
+        {:exit, reason}, {broken, uncertain} ->
+          {broken,
+           [%{media_id: nil, storage_path: nil, reason: {:task_exit, reason}} | uncertain]}
+      end)
+
+    broken_posts =
+      broken_rows
+      |> Enum.group_by(& &1.post_id)
+      |> Enum.map(fn {post_id, media_rows} ->
+        first = hd(media_rows)
+
+        %{
+          post_id: post_id,
+          identity_id: first.identity_id,
+          inserted_at: first.inserted_at,
+          media:
+            Enum.map(
+              media_rows,
+              &%{id: &1.media_id, path: &1.storage_path, content_type: &1.content_type}
+            )
+        }
+      end)
+      |> Enum.sort_by(& &1.inserted_at, {:asc, DateTime})
+
+    %{broken_posts: broken_posts, uncertain: uncertain, scanned: scanned}
+  end
+
+  defp print_broken_media_report(%{
+         broken_posts: broken_posts,
+         uncertain: uncertain,
+         scanned: scanned
+       }) do
+    IO.puts("")
+    IO.puts("=== Broken media audit ===")
+    IO.puts("Scanned local image attachments : #{scanned}")
+    IO.puts("Posts with missing image files  : #{length(broken_posts)}")
+    IO.puts("Uncertain (storage unreachable) : #{length(uncertain)}")
+    IO.puts("")
+
+    Enum.each(broken_posts, fn post ->
+      IO.puts("post #{post.post_id}  (identity #{post.identity_id}, #{post.inserted_at})")
+
+      Enum.each(post.media, fn m ->
+        IO.puts("    missing: #{m.path}  [#{m.content_type}]")
+      end)
+    end)
+
+    if uncertain != [] do
+      IO.puts("")
+      IO.puts("Uncertain rows (NOT deleted — storage HEAD errored):")
+
+      Enum.each(uncertain, fn u ->
+        IO.puts("    #{u[:storage_path] || "?"}  (#{inspect(u[:reason])})")
+      end)
+    end
+
+    IO.puts("")
+    :ok
+  end
+
   def setup do
     load_app()
 

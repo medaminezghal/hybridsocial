@@ -46,6 +46,18 @@ defmodule Hybridsocial.Media.Storage do
     StorageResolver.impl().url(storage_path)
   end
 
+  @doc """
+  Checks whether the backing object for `storage_path` still exists in
+  the active backend.
+
+  Returns `{:ok, true|false}` for a definitive answer, or `{:error, reason}`
+  if the backend couldn't be reached. Callers must treat `{:error, _}` as
+  "unknown", never as "missing".
+  """
+  def exists?(storage_path) do
+    StorageResolver.impl().exists?(storage_path)
+  end
+
   # ---------------------------------------------------------------------------
   # Public helpers
   # ---------------------------------------------------------------------------
